@@ -368,6 +368,7 @@ const QRVisual = () => {
 /* ============================================================ Registrations */
 const RegistrationsTab = ({ a }) => {
   const [filter, setFilter] = React.useState("All");
+  const [certOpen, setCertOpen] = React.useState(false);
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-3">
@@ -379,8 +380,11 @@ const RegistrationsTab = ({ a }) => {
           <Btn variant="outline" size="sm" icon={Icon.Download}>Export CSV</Btn>
           <Btn variant="outline" size="sm" icon={Icon.Send}>Email selected</Btn>
           <Btn variant="default" size="sm" icon={Icon.Plus}>Add registrant</Btn>
+          <Btn variant="default" size="sm" icon={Icon.Medal} onClick={() => setCertOpen(true)}>Issue certificates</Btn>
         </div>
       </div>
+
+      {certOpen && <CertModal onClose={() => setCertOpen(false)} activityTitle={a.title}/>}
 
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-[12.5px]">
@@ -505,14 +509,35 @@ const ApplicantsTab = ({ a }) => (
   <div className="p-6"><Card className="p-5"><div className="text-[13.5px] font-semibold mb-2">Volunteer applicants</div><div className="text-[12.5px] text-[var(--mute)]">38 applicants · 28 confirmed · 10 shortlisted</div>
   <div className="mt-4 grid grid-cols-3 gap-3">{SAMA.PEOPLE.slice(0,9).map(p=>(<div key={p.id} className="flex items-center gap-2 p-2.5 rounded-[8px] border hairline"><Avatar name={p.name} size={26}/><div className="flex-1 min-w-0"><div className="text-[12.5px] font-medium truncate">{p.name}</div><div className="text-[11px] text-[var(--mute)]">{p.dept}</div></div><Chip tone={Math.random()>.4?"ok":"neutral"}>Confirmed</Chip></div>))}</div></Card></div>
 );
-const HoursTab = ({ a }) => (
-  <div className="p-6 grid grid-cols-3 gap-4">
-    <Stat label="Total hours logged" value="214"/>
-    <Stat label="Certificates issued" value="28" hint="auto-issue at 4hr+"/>
-    <Stat label="Avg per volunteer" value="5.4 hrs"/>
-    <div className="col-span-3"><Card className="p-4"><div className="text-[13.5px] font-semibold mb-3">Volunteer hours log</div><div className="divide-y hairline-2">{SAMA.PEOPLE.slice(0,6).map((p,i)=>(<div key={p.id} className="flex items-center gap-3 py-2"><Avatar name={p.name} size={24}/><div className="flex-1"><div className="text-[12.5px] font-medium">{p.name}</div><div className="text-[11px] text-[var(--mute)]">{p.sid}</div></div><div className="text-[11px] font-mono">{["4.0","6.5","3.5","8.0","5.5","4.5"][i]} hrs</div><Chip tone="green">Cert issued</Chip></div>))}</div></Card></div>
-  </div>
-);
+const HoursTab = ({ a }) => {
+  const [certOpen, setCertOpen] = React.useState(false);
+  return (
+    <div className="p-6 grid grid-cols-3 gap-4">
+      <Stat label="Total hours logged" value="214"/>
+      <Stat label="Certificates issued" value="28" hint="auto-issue at 4hr+"/>
+      <Stat label="Avg per volunteer" value="5.4 hrs"/>
+      <div className="col-span-3">
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[13.5px] font-semibold">Volunteer hours log</div>
+            <Btn variant="default" size="sm" icon={Icon.Medal} onClick={() => setCertOpen(true)}>Issue certificates</Btn>
+          </div>
+          <div className="divide-y hairline-2">
+            {SAMA.PEOPLE.slice(0,6).map((p,i) => (
+              <div key={p.id} className="flex items-center gap-3 py-2">
+                <Avatar name={p.name} size={24}/>
+                <div className="flex-1"><div className="text-[12.5px] font-medium">{p.name}</div><div className="text-[11px] text-[var(--mute)]">{p.sid}</div></div>
+                <div className="text-[11px] font-mono">{["4.0","6.5","3.5","8.0","5.5","4.5"][i]} hrs</div>
+                <Chip tone="green">Cert issued</Chip>
+              </div>
+            ))}
+          </div>
+        </Card>
+      </div>
+      {certOpen && <CertModal onClose={() => setCertOpen(false)} activityTitle={a.title}/>}
+    </div>
+  );
+};
 const LogisticsTab = ({ a }) => (
   <div className="p-6 grid grid-cols-2 gap-4">
     <Card className="p-4"><div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Transport</div><ResourceRow icon="Bus" title="Bus 1 · 45 seats" hint="Gate 3, 4:15 PM · Driver A. Siddiqui"/><ResourceRow icon="Bus" title="Bus 2 · 45 seats" hint="Gate 3, 4:25 PM · Driver H. Patel"/><div className="text-[11.5px] text-[var(--mute)] mt-3">Return 9:15 PM · same gates</div></Card>
@@ -527,5 +552,129 @@ const RosterTab = ({ a }) => <RegistrationsTab a={a}/>;
 const AttendanceTab = ({ a }) => (<div className="p-6"><Card className="p-5"><div className="text-[13.5px] font-semibold mb-3">Session-by-session attendance</div><div className="grid grid-cols-[200px,repeat(12,1fr)] gap-1 text-[10.5px]"><div className="font-medium">Student</div>{Array.from({length:12}).map((_,i)=><div key={i} className="text-center font-mono text-[var(--mute)]">W{i+1}</div>)}{SAMA.PEOPLE.slice(0,10).map(p=>(<React.Fragment key={p.id}><div className="flex items-center gap-1.5 truncate"><Avatar name={p.name} size={16}/><span className="truncate">{p.name.split(" ")[0]}</span></div>{Array.from({length:12}).map((_,w)=>{const r=Math.random(); return <div key={w} className={cx("h-6 rounded-[3px]", w>5?"bg-[#f1f2ef]": r>.85?"bg-[var(--bad-wash)]": r>.7?"bg-[var(--warn-wash)]":"bg-[var(--ok-wash)]")}/>;})}</React.Fragment>))}</div></Card></div>);
 const SubtasksTab = ({ a }) => (<div className="p-6"><Card className="p-4"><div className="text-[13.5px] font-semibold mb-3">Subtasks · {a.subtasksDone||0}/{a.subtasks||4}</div>{["Book catering","Send calendar invite","Prepare handouts","Confirm AV setup"].map((t,i)=>(<div key={i} className="flex items-center gap-3 py-2.5 border-b hairline-2 last:border-0"><input type="checkbox" defaultChecked={i<(a.subtasksDone||2)}/><span className={cx("text-[13px] flex-1", i<(a.subtasksDone||2)&&"line-through text-[var(--mute)]")}>{t}</span><Avatar name={["Jane Doe","Hassan Q","Reem Abdulla","Fatima L"][i]} size={22}/><span className="text-[11.5px] text-[var(--mute)] font-mono">Oct {18+i}</span></div>))}</Card></div>);
 const ActivityLogTab = ({ a }) => (<div className="p-6"><Card className="p-4"><div className="text-[13.5px] font-semibold mb-3">Audit trail</div><div className="space-y-2">{[["created","Jane Doe","8 days ago"],["edited venue","Jane Doe","7 days ago"],["submitted for approval","Jane Doe","6 days ago"],["approved","Reem Abdulla","5 days ago"],["registration opened","System","5 days ago"],["added comms schedule","Jane Doe","4 days ago"],["47 students registered","System","ongoing"]].map(([t,by,when],i)=>(<div key={i} className="flex items-center gap-3 py-1.5 text-[12px]"><div className="w-1.5 h-1.5 rounded-full bg-[var(--mute-2)]"/><span className="text-[var(--ink)]">{t}</span><span className="text-[var(--mute)]">by {by}</span><span className="flex-1"/><span className="text-[var(--mute-2)] font-mono text-[11px]">{when}</span></div>))}</div></Card></div>);
+
+/* ============================================================ Certificate Modal */
+const CertModal = ({ onClose, activityTitle }) => {
+  const [step, setStep] = React.useState(1);
+  const [certType, setCertType] = React.useState("Attendance");
+  const [recipients, setRecipients] = React.useState("all_confirmed");
+  const toast = useToast();
+
+  const recipientCount = { all_confirmed: 38, attended: 32, selection: 5 }[recipients];
+
+  React.useEffect(() => {
+    if (step !== 3) return;
+    const t = setTimeout(() => setStep(4), 2200);
+    return () => clearTimeout(t);
+  }, [step]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target===e.currentTarget && onClose()}>
+      <div className="bg-white rounded-[16px] shadow-float w-[580px] overflow-hidden">
+        {/* Header */}
+        <div className="px-6 py-4 border-b hairline flex items-center justify-between">
+          <div>
+            <div className="text-[15px] font-semibold">Issue certificates</div>
+            <div className="text-[11.5px] text-[var(--mute)] mt-0.5">{activityTitle}</div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-[7px] hover:bg-[#eeefef] flex items-center justify-center"><Icon.X width={14} height={14}/></button>
+        </div>
+
+        {step === 1 && (
+          <div className="p-6 space-y-5">
+            <div>
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Certificate type</div>
+              <div className="grid grid-cols-2 gap-2">
+                {[["Attendance","For attending the activity","ClipboardCheck"],["Completion","For completing a program","Medal"],["Volunteering Hours","For volunteer work","Heart"],["Achievement","For exceptional performance","Rocket"]].map(([t,desc,ic]) => {
+                  const I = Icon[ic];
+                  return (
+                    <button key={t} onClick={() => setCertType(t)} className={cx("p-3 rounded-[10px] border text-left transition-colors", certType === t ? "border-[var(--accent)] bg-[var(--accent-wash)]" : "border-[var(--line)] hover:border-[var(--mute-2)]")}>
+                      <div className="flex items-center gap-2 mb-1"><I width={13} height={13} className={certType===t?"text-[var(--accent)]":"text-[var(--mute)]"}/><span className="text-[12.5px] font-semibold">{t}</span></div>
+                      <div className="text-[11px] text-[var(--mute)]">{desc}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Issue to</div>
+              <div className="space-y-1.5">
+                {[["all_confirmed","All confirmed participants","38 people"],["attended","Only those who attended","32 people"],["selection","Custom selection","Choose manually"]].map(([v,label,hint]) => (
+                  <label key={v} className={cx("flex items-center gap-3 p-3 rounded-[8px] border cursor-pointer transition-colors", recipients===v ? "border-[var(--accent)] bg-[var(--accent-wash)]" : "border-[var(--line)] hover:border-[var(--mute-2)]")}>
+                    <input type="radio" name="recipients" value={v} checked={recipients===v} onChange={() => setRecipients(v)} className="accent-[var(--accent)]"/>
+                    <div className="flex-1"><div className="text-[12.5px] font-medium">{label}</div><div className="text-[11px] text-[var(--mute)]">{hint}</div></div>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Btn variant="outline" onClick={onClose}>Cancel</Btn>
+              <Btn variant="default" trailingIcon={Icon.ChevRight} onClick={() => setStep(2)}>Preview certificate</Btn>
+            </div>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="p-6 space-y-4">
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)]">Certificate preview</div>
+            <div className="border hairline rounded-[12px] bg-[#fdfcf9] overflow-hidden">
+              <div className="h-1.5 bg-gradient-to-r from-[var(--accent)] via-[var(--teal)] to-[var(--accent)]"/>
+              <div className="p-8 text-center space-y-2.5">
+                <div className="w-9 h-9 rounded-[8px] bg-[var(--ink)] flex items-center justify-center mx-auto"><span className="text-white text-[11px] font-bold tracking-wide">SAMA</span></div>
+                <div className="text-[9.5px] uppercase tracking-widest text-[var(--mute)] font-semibold">University of Applied Sciences · Student Activities</div>
+                <div className="text-[9.5px] uppercase tracking-widest text-[var(--mute)]">Certificate of {certType}</div>
+                <div className="text-[10.5px] text-[var(--mute)] pt-1">This certifies that</div>
+                <div className="text-[24px] font-semibold tracking-tight" style={{fontFamily:"Georgia,serif"}}>Fatima Al-Nuaimi</div>
+                <div className="text-[11px] text-[var(--mute)] max-w-[300px] mx-auto leading-relaxed">
+                  has {certType==="Volunteering Hours"?"contributed 4 volunteer hours to":certType==="Achievement"?"demonstrated exceptional performance at":certType==="Completion"?"successfully completed":"attended"}
+                </div>
+                <div className="text-[14px] font-semibold">{activityTitle}</div>
+                <div className="text-[10.5px] text-[var(--mute)]">October 22, 2025</div>
+                <div className="pt-4 border-t hairline-2 flex items-center justify-between text-[9.5px] text-[var(--mute-2)] font-mono">
+                  <span>SAMA-25-3814</span><span>verify.sama.ae/cert</span>
+                </div>
+              </div>
+            </div>
+            <div className="text-[11.5px] text-[var(--mute)] text-center">{recipientCount} certificates will be generated and emailed. Each has a unique verification code.</div>
+            <div className="flex justify-between gap-2">
+              <Btn variant="ghost" icon={Icon.ChevLeft} onClick={() => setStep(1)}>Back</Btn>
+              <div className="flex gap-2">
+                <Btn variant="outline" onClick={onClose}>Cancel</Btn>
+                <Btn variant="default" icon={Icon.Medal} onClick={() => setStep(3)}>Generate & send {recipientCount} certificates</Btn>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div className="p-14 flex flex-col items-center gap-4">
+            <div className="w-16 h-16 rounded-full bg-[var(--accent-wash)] flex items-center justify-center">
+              <Icon.Medal width={30} height={30} className="text-[var(--accent)] animate-pulse"/>
+            </div>
+            <div className="text-[15px] font-semibold">Generating certificates…</div>
+            <div className="text-[12px] text-[var(--mute)]">Creating {recipientCount} PDFs and queuing emails</div>
+            <div className="w-52 h-1.5 bg-[#eef0f3] rounded-full overflow-hidden mt-1">
+              <div className="h-full bg-[var(--accent)] rounded-full" style={{width:"100%", transition:"width 2.2s ease", animation:"none"}}/>
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div className="p-14 flex flex-col items-center gap-3">
+            <div className="w-16 h-16 rounded-full bg-[var(--ok-wash)] flex items-center justify-center">
+              <Icon.CheckCircle width={30} height={30} className="text-[var(--ok)]"/>
+            </div>
+            <div className="text-[15px] font-semibold">{recipientCount} certificates sent</div>
+            <div className="text-[12px] text-[var(--mute)] text-center leading-relaxed">Each participant received an email with their PDF attached.<br/>Certificates are also available in the student portal.</div>
+            <div className="flex gap-2 mt-3">
+              <Btn variant="outline" icon={Icon.Download}>Download all as ZIP</Btn>
+              <Btn variant="default" onClick={() => { toast.push({ text: `${recipientCount} certificates issued`, icon: Icon.Medal }); onClose(); }}>Done</Btn>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 window.Detail = Detail;
