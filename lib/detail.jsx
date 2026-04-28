@@ -424,10 +424,26 @@ const RegistrationsTab = ({ a }) => {
 
 /* ============================================================ Sessions (Program) */
 const SessionsTab = ({ a }) => {
+  const [selectedIdx, setSelectedIdx] = React.useState(null);
+  const [attendanceMap, setAttendanceMap] = React.useState({});
+  const toast = useToast();
+
   const sessions = Array.from({length:12}).map((_,i) => ({
-    id:i+1, date:`2025-${(9 + Math.floor(i/4)).toString().padStart(2,"0")}-${(((i%4)*7)+6).toString().padStart(2,"0")}`,
-    label:`Week ${i+1}`, status: i<5?"Completed":i===5?"Today":"Upcoming", attendance: i<5? Math.round(14 + Math.random()*5) : null, total:18
+    id:i+1,
+    date:`2025-${(9+Math.floor(i/4)).toString().padStart(2,"0")}-${(((i%4)*7)+6).toString().padStart(2,"0")}`,
+    label:`Week ${i+1}`,
+    status: i<5?"Completed":i===5?"Today":"Upcoming",
+    attended: i<5 ? [14,16,15,17,13][i] : null,
+    total:18,
   }));
+
+  const enrolled = SAMA.PEOPLE.slice(0, 18);
+  const sel = selectedIdx !== null ? sessions[selectedIdx] : null;
+  const markedCount = Object.values(attendanceMap).filter(Boolean).length;
+
+  const toggleAttend = pid => setAttendanceMap(prev => ({ ...prev, [pid]: !prev[pid] }));
+  const markAll = () => { const m = {}; enrolled.forEach(p => { m[p.id] = true; }); setAttendanceMap(m); };
+
   return (
     <div className="p-6 grid grid-cols-[1fr,320px] gap-5">
       <div className="space-y-3">
@@ -436,8 +452,8 @@ const SessionsTab = ({ a }) => {
           <Btn variant="outline" size="sm" icon={Icon.Plus}>Add session</Btn>
         </div>
         {sessions.map((s,i) => (
-          <Card key={s.id} className={cx("p-3 flex items-center gap-4", s.status==="Today" && "ring-2 ring-[var(--accent)]/30")}>
-            <div className="w-12 text-center">
+          <Card key={s.id} onClick={() => setSelectedIdx(i===selectedIdx ? null : i)} className={cx("p-3 flex items-center gap-4 cursor-pointer transition-colors", s.status==="Today" && "ring-2 ring-[var(--accent)]/30", selectedIdx===i ? "border-[var(--accent)] bg-[var(--accent-wash)]/30" : "hover:border-[var(--mute-2)]")}>
+            <div className="w-12 text-center shrink-0">
               <div className="text-[10px] uppercase tracking-wider text-[var(--mute)]">{s.date.split("-")[1]==="09"?"Sep":s.date.split("-")[1]==="10"?"Oct":"Nov"}</div>
               <div className="text-[20px] font-semibold tracking-tight">{s.date.split("-")[2]}</div>
             </div>
@@ -451,31 +467,70 @@ const SessionsTab = ({ a }) => {
               <div className="text-[11.5px] text-[var(--mute)] mt-0.5 flex items-center gap-3">
                 <span className="flex items-center gap-1"><Icon.Pin width={11} height={11}/>Sports Field A</span>
                 <span className="flex items-center gap-1"><Icon.User width={11} height={11}/>Coach Martinez</span>
-                {s.attendance != null && <span className="flex items-center gap-1"><Icon.Users width={11} height={11}/>{s.attendance}/{s.total}</span>}
+                {s.attended != null && <span className="flex items-center gap-1"><Icon.Users width={11} height={11}/>{s.attended}/{s.total}</span>}
               </div>
             </div>
-            {s.status==="Completed" && (
-              <div className="w-[120px]"><Progress value={s.attendance/s.total*100} color="var(--ok)"/><div className="text-[10.5px] font-mono text-[var(--mute)] mt-1 text-right">{Math.round(s.attendance/s.total*100)}% attended</div></div>
+            {s.attended != null && (
+              <div className="w-[100px] shrink-0"><Progress value={s.attended/s.total*100} color="var(--ok)"/><div className="text-[10.5px] font-mono text-[var(--mute)] mt-1 text-right">{Math.round(s.attended/s.total*100)}%</div></div>
             )}
-            <button className="text-[var(--mute)] hover:text-[var(--ink)]"><Icon.ChevRight width={14} height={14}/></button>
+            {(s.status==="Today"||s.status==="Upcoming") && selectedIdx!==i && (
+              <span className="text-[11.5px] text-[var(--accent)] font-medium shrink-0">Take attendance →</span>
+            )}
           </Card>
         ))}
       </div>
+
       <div className="space-y-4">
-        <Card className="p-4">
-          <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Attendance trend</div>
-          <AttendanceSpark/>
-          <div className="mt-2 flex items-baseline justify-between">
-            <div><div className="text-[22px] font-semibold tracking-tight">87%</div><div className="text-[11px] text-[var(--mute)]">average attendance</div></div>
-            <Chip tone="green">↑ 6% vs last term</Chip>
-          </div>
-        </Card>
-        <Card className="p-4">
-          <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Waivers & health</div>
-          <RowStat label="Medical cleared" value="18/18" ok/>
-          <RowStat label="Waivers signed" value="18/18" ok/>
-          <RowStat label="Emergency contacts" value="17/18" warn/>
-        </Card>
+        {sel ? (
+          <Card className="p-0 overflow-hidden flex flex-col" style={{maxHeight:"600px"}}>
+            <div className="px-4 py-3 border-b hairline-2 flex items-center justify-between shrink-0">
+              <div>
+                <div className="text-[13px] font-semibold">{sel.label} · Attendance</div>
+                <div className="text-[11px] text-[var(--mute)]">{markedCount}/{enrolled.length} marked present</div>
+              </div>
+              <button onClick={() => setSelectedIdx(null)} className="w-7 h-7 rounded-[7px] hover:bg-[#eeefef] flex items-center justify-center"><Icon.X width={13} height={13}/></button>
+            </div>
+            <div className="flex-1 overflow-y-auto thin-scroll divide-y hairline-2">
+              {enrolled.map(p => {
+                const present = !!attendanceMap[p.id];
+                return (
+                  <div key={p.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-[#fafafa]">
+                    <Avatar name={p.name} size={24}/>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[12px] font-medium truncate">{p.name}</div>
+                      <div className="text-[10.5px] text-[var(--mute)]">{p.dept}</div>
+                    </div>
+                    <button onClick={() => toggleAttend(p.id)} className={cx("h-7 px-2.5 rounded-[6px] text-[11.5px] font-medium flex items-center gap-1 transition-colors", present ? "bg-[var(--ok-wash)] text-[var(--ok)]" : "border hairline text-[var(--mute-2)] hover:text-[var(--ink)]")}>
+                      {present ? <><Icon.Check width={11} height={11}/>Present</> : "Absent"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="px-3 py-3 border-t hairline-2 flex gap-2 shrink-0">
+              <Btn variant="outline" size="sm" className="flex-1" onClick={markAll}>Mark all present</Btn>
+              <Btn variant="default" size="sm" className="flex-1" onClick={() => { toast.push({ text:`Attendance saved · ${markedCount}/${enrolled.length} present`, icon:Icon.Check }); setSelectedIdx(null); }}>Save</Btn>
+            </div>
+          </Card>
+        ) : (
+          <>
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Attendance trend</div>
+              <AttendanceSpark/>
+              <div className="mt-2 flex items-baseline justify-between">
+                <div><div className="text-[22px] font-semibold tracking-tight">87%</div><div className="text-[11px] text-[var(--mute)]">average attendance</div></div>
+                <Chip tone="green">↑ 6% vs last term</Chip>
+              </div>
+            </Card>
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Waivers & health</div>
+              <RowStat label="Medical cleared" value="18/18" ok/>
+              <RowStat label="Waivers signed" value="18/18" ok/>
+              <RowStat label="Emergency contacts" value="17/18" warn/>
+            </Card>
+            <div className="text-[11.5px] text-[var(--mute)] text-center pt-1">Click a session to take attendance</div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -547,10 +602,244 @@ const LogisticsTab = ({ a }) => (
 );
 const CommsTab = ({ a }) => (<div className="p-6"><Card className="p-5"><div className="text-[13.5px] font-semibold mb-3">Communication log</div><div className="space-y-2.5">{[{t:"Announcement · Registration open",d:"5 days ago",r:"1,248 recipients"},{t:"Reminder · T-3 days",d:"Scheduled Oct 19",r:"Will send to 47 confirmed"},{t:"Reminder · T-1 day",d:"Scheduled Oct 21",r:"Will send to 47 confirmed"},{t:"Thank you + feedback",d:"Auto post-event",r:"Will send after check-in close"}].map((x,i)=>(<div key={i} className="flex items-center gap-3 p-3 rounded-[8px] border hairline-2"><div className="w-8 h-8 rounded-[7px] bg-[var(--accent-wash)] flex items-center justify-center"><Icon.Send width={14} height={14} className="text-[var(--accent)]"/></div><div className="flex-1"><div className="text-[12.5px] font-medium">{x.t}</div><div className="text-[11px] text-[var(--mute)]">{x.d} · {x.r}</div></div><Btn variant="ghost" size="sm">View</Btn></div>))}</div></Card></div>);
 const DocsTab = ({ a }) => (<div className="p-6 grid grid-cols-3 gap-3">{["Event brief v2.pdf","Risk assessment.pdf","Speaker contract.pdf","Venue permit.pdf","Catering invoice.pdf","Final agenda.docx"].map((d,i)=>(<Card key={i} className="p-4"><div className="w-10 h-10 rounded-[7px] bg-[var(--accent-wash)] flex items-center justify-center mb-2.5"><Icon.Doc width={16} height={16} className="text-[var(--accent)]"/></div><div className="text-[12.5px] font-medium">{d}</div><div className="text-[11px] text-[var(--mute)] mt-0.5">2.4 MB · edited 2d ago</div></Card>))}</div>);
-const FeedbackTab = ({ a }) => (<div className="p-6"><Card className="p-5"><div className="flex items-baseline justify-between mb-4"><div className="text-[13.5px] font-semibold">Post-event feedback</div><div className="text-[11.5px] text-[var(--mute)]">34 responses · 72% response rate</div></div><div className="grid grid-cols-4 gap-4">{[["Overall","4.6"],["Content","4.8"],["Venue","4.2"],["Would recommend","92%"]].map(([l,v])=>(<div key={l}><div className="text-[11px] text-[var(--mute)]">{l}</div><div className="text-[26px] font-semibold tracking-tight">{v}</div><div className="flex gap-0.5 mt-1">{Array.from({length:5}).map((_,i)=><Icon.Star key={i} width={11} height={11} className={i<4?"text-[var(--amber)]":"text-[var(--line)]"}/>)}</div></div>))}</div></Card></div>);
+const FeedbackTab = ({ a }) => {
+  const [view, setView] = React.useState("configure");
+  const [autoSend, setAutoSend] = React.useState(true);
+  const [delay, setDelay] = React.useState("2");
+  const [customQs, setCustomQs] = React.useState([]);
+  const [newQ, setNewQ] = React.useState("");
+  const toast = useToast();
+
+  const DEFAULT_QUESTIONS = [
+    { text:"Overall rating (1–5 stars)", type:"Rating" },
+    { text:"What did you enjoy most about this activity?", type:"Open text" },
+    { text:"What could be improved?", type:"Open text" },
+    { text:"Would you attend again?", type:"Yes / No / Maybe" },
+    { text:"How did you hear about this activity?", type:"Multiple choice" },
+  ];
+
+  const addQuestion = () => {
+    if (!newQ.trim()) return;
+    setCustomQs(prev => [...prev, { text: newQ.trim(), type:"Open text" }]);
+    setNewQ("");
+  };
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div className="text-[13.5px] font-semibold">Post-activity feedback survey</div>
+        <Segmented size="sm" value={view} onChange={setView} items={[{value:"configure",label:"Configure"},{value:"results",label:"Results · 34"}]}/>
+      </div>
+
+      {view === "configure" && (
+        <div className="grid grid-cols-[1fr,300px] gap-5">
+          <div className="space-y-4">
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Default questions <span className="normal-case font-normal text-[var(--mute-2)]">· always included</span></div>
+              <div className="space-y-2">
+                {DEFAULT_QUESTIONS.map((q,i) => (
+                  <div key={i} className="flex items-center gap-3 p-3 rounded-[8px] bg-[#fafafa]">
+                    <div className="w-5 h-5 rounded-full bg-[var(--ink)] text-white text-[10px] flex items-center justify-center font-semibold shrink-0">{i+1}</div>
+                    <div className="flex-1"><div className="text-[12.5px] font-medium">{q.text}</div><div className="text-[11px] text-[var(--mute)]">{q.type}</div></div>
+                    <Icon.Shield width={12} height={12} className="text-[var(--mute-2)]"/>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Custom questions</div>
+              {customQs.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {customQs.map((q,i) => (
+                    <div key={i} className="flex items-center gap-3 p-3 rounded-[8px] border hairline">
+                      <div className="w-5 h-5 rounded-full bg-[var(--accent-wash)] text-[var(--accent-ink)] text-[10px] flex items-center justify-center font-semibold shrink-0">{DEFAULT_QUESTIONS.length+i+1}</div>
+                      <div className="flex-1 text-[12.5px]">{q.text}</div>
+                      <button onClick={() => setCustomQs(prev => prev.filter((_,j) => j!==i))} className="text-[var(--mute)] hover:text-[var(--bad)]"><Icon.X width={12} height={12}/></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {customQs.length === 0 && <div className="text-[12px] text-[var(--mute)] mb-3">No custom questions yet.</div>}
+              <div className="flex gap-2">
+                <input value={newQ} onChange={e => setNewQ(e.target.value)} onKeyDown={e => e.key==="Enter" && addQuestion()}
+                  placeholder="Type a question and press Enter…"
+                  className="flex-1 h-8 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+                <Btn variant="outline" size="sm" icon={Icon.Plus} onClick={addQuestion}>Add</Btn>
+              </div>
+            </Card>
+          </div>
+
+          <div className="space-y-4">
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Send settings</div>
+              <div className="space-y-4">
+                <label className="flex items-start gap-3 cursor-pointer">
+                  <div className="flex-1">
+                    <div className="text-[12.5px] font-medium">Auto-send on completion</div>
+                    <div className="text-[11px] text-[var(--mute)] mt-0.5">Sends when activity is marked complete</div>
+                  </div>
+                  <div className={cx("w-9 h-5 rounded-full transition-colors relative cursor-pointer shrink-0 mt-0.5", autoSend?"bg-[var(--ok)]":"bg-[var(--line)]")} onClick={() => setAutoSend(v=>!v)}>
+                    <div className={cx("absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform", autoSend?"translate-x-4":"translate-x-0.5")}/>
+                  </div>
+                </label>
+                {autoSend && (
+                  <div>
+                    <div className="text-[11.5px] text-[var(--mute)] mb-1.5">Delay after completion</div>
+                    <div className="flex gap-1.5 flex-wrap">
+                      {[["0","Now"],["1","1h"],["2","2h"],["4","4h"],["24","24h"]].map(([v,label]) => (
+                        <button key={v} onClick={() => setDelay(v)} className={cx("px-3 h-7 rounded-[6px] text-[11.5px] font-medium transition-colors", delay===v?"bg-[var(--ink)] text-white":"border hairline text-[var(--mute)] hover:text-[var(--ink)]")}>{label}</button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" defaultChecked className="accent-[var(--accent)]"/>
+                  <span className="text-[12px]">Anonymous responses</span>
+                </label>
+              </div>
+            </Card>
+
+            <div className="rounded-[12px] bg-[var(--ink)] text-white p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold opacity-70 mb-1">Send now</div>
+              <div className="text-[12px] opacity-75 mb-3 leading-relaxed">Send immediately to all 47 confirmed participants.</div>
+              <Btn variant="outline" className="w-full border-white/30 text-white hover:bg-white/10" size="sm" icon={Icon.Send}
+                onClick={() => { toast.push({ text:"Survey sent to 47 participants", icon:Icon.Send }); }}>
+                Send survey now
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {view === "results" && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-4 gap-3">
+            {[["Overall rating","4.6",4],["Content quality","4.8",5],["Venue & logistics","4.2",4],["Would attend again","92%",0]].map(([l,v,stars]) => (
+              <Card key={l} className="p-4 text-center">
+                <div className="text-[11px] text-[var(--mute)] mb-1">{l}</div>
+                <div className="text-[28px] font-semibold tracking-tight">{v}</div>
+                {stars > 0 && <div className="flex justify-center gap-0.5 mt-1">{Array.from({length:5}).map((_,i)=><Icon.Star key={i} width={12} height={12} className={i<stars?"text-[var(--amber)]":"text-[var(--line)]"}/>)}</div>}
+              </Card>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-[1fr,260px] gap-4">
+            <Card className="p-4">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Individual responses</div>
+              <div className="space-y-3">
+                {[["Fatima Al-Nuaimi",5,"Loved the interactive format. The speaker was engaging and the Q&A was the best part."],
+                  ["Hassan Qureshi",4,"Good content but the venue was a bit crowded. More time for Q&A please."],
+                  ["Amina Khalil",5,"Excellent session. Learned a lot about practical applications. Please do a part 2!"],
+                  ["Tariq Mansour",3,"Content was interesting but ran 30 min over. Schedule management needs work."]
+                ].map(([name,rating,comment],i) => (
+                  <div key={i} className="p-3 rounded-[8px] bg-[#fafafa] border hairline-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <Avatar name={name} size={20}/>
+                      <span className="text-[12.5px] font-medium flex-1">{name}</span>
+                      <span className="text-[var(--amber)] text-[12px]">{"★".repeat(rating)}{"☆".repeat(5-rating)}</span>
+                    </div>
+                    <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">{comment}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+
+            <div className="space-y-4">
+              <Card className="p-4">
+                <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Response rate</div>
+                <div className="text-[28px] font-semibold">72%</div>
+                <div className="text-[11.5px] text-[var(--mute)]">34 of 47 participants</div>
+                <Progress value={72} color="var(--ok)" className="mt-2"/>
+              </Card>
+              <Card className="p-4">
+                <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">How they heard</div>
+                {[["Student portal","42%"],["Email","28%"],["WhatsApp","18%"],["Friend","12%"]].map(([l,v])=>(
+                  <div key={l} className="flex items-center gap-2 py-1.5">
+                    <div className="text-[12px] flex-1">{l}</div>
+                    <div className="text-[11px] font-mono text-[var(--mute)]">{v}</div>
+                    <div className="w-14 h-1.5 bg-[#eef0f3] rounded-full overflow-hidden"><div className="h-full bg-[var(--accent)] rounded-full" style={{width:v}}/></div>
+                  </div>
+                ))}
+              </Card>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 const RosterTab = ({ a }) => <RegistrationsTab a={a}/>;
 const AttendanceTab = ({ a }) => (<div className="p-6"><Card className="p-5"><div className="text-[13.5px] font-semibold mb-3">Session-by-session attendance</div><div className="grid grid-cols-[200px,repeat(12,1fr)] gap-1 text-[10.5px]"><div className="font-medium">Student</div>{Array.from({length:12}).map((_,i)=><div key={i} className="text-center font-mono text-[var(--mute)]">W{i+1}</div>)}{SAMA.PEOPLE.slice(0,10).map(p=>(<React.Fragment key={p.id}><div className="flex items-center gap-1.5 truncate"><Avatar name={p.name} size={16}/><span className="truncate">{p.name.split(" ")[0]}</span></div>{Array.from({length:12}).map((_,w)=>{const r=Math.random(); return <div key={w} className={cx("h-6 rounded-[3px]", w>5?"bg-[#f1f2ef]": r>.85?"bg-[var(--bad-wash)]": r>.7?"bg-[var(--warn-wash)]":"bg-[var(--ok-wash)]")}/>;})}</React.Fragment>))}</div></Card></div>);
-const SubtasksTab = ({ a }) => (<div className="p-6"><Card className="p-4"><div className="text-[13.5px] font-semibold mb-3">Subtasks · {a.subtasksDone||0}/{a.subtasks||4}</div>{["Book catering","Send calendar invite","Prepare handouts","Confirm AV setup"].map((t,i)=>(<div key={i} className="flex items-center gap-3 py-2.5 border-b hairline-2 last:border-0"><input type="checkbox" defaultChecked={i<(a.subtasksDone||2)}/><span className={cx("text-[13px] flex-1", i<(a.subtasksDone||2)&&"line-through text-[var(--mute)]")}>{t}</span><Avatar name={["Jane Doe","Hassan Q","Reem Abdulla","Fatima L"][i]} size={22}/><span className="text-[11.5px] text-[var(--mute)] font-mono">Oct {18+i}</span></div>))}</Card></div>);
+const SubtasksTab = ({ a }) => {
+  const STATUS_CYCLE = ["To Do", "In Progress", "Blocked", "Done"];
+  const STATUS_TONE  = { "To Do":"slate", "In Progress":"indigo", "Blocked":"red", "Done":"green" };
+  const PRIORITY_TONE = { Low:"slate", Medium:"amber", High:"red", Urgent:"red" };
+
+  const [tasks, setTasks] = React.useState([
+    { id:1, title:"Book catering",          status:"Done",        priority:"High",   assignee:"Jane Doe",     due:"Oct 18" },
+    { id:2, title:"Send calendar invite",   status:"Done",        priority:"Medium", assignee:"Hassan Q",     due:"Oct 19" },
+    { id:3, title:"Prepare handouts",       status:"In Progress", priority:"High",   assignee:"Reem Abdulla", due:"Oct 20" },
+    { id:4, title:"Confirm AV setup",       status:"To Do",       priority:"Urgent", assignee:"Fatima L",     due:"Oct 21" },
+    { id:5, title:"Print name badges",      status:"Blocked",     priority:"Medium", assignee:"Jane Doe",     due:"Oct 21" },
+    { id:6, title:"Prepare welcome slides", status:"To Do",       priority:"Low",    assignee:"Hassan Q",     due:"Oct 22" },
+  ]);
+  const toast = useToast();
+
+  const cycleStatus = id => setTasks(prev => prev.map(t =>
+    t.id !== id ? t : { ...t, status: STATUS_CYCLE[(STATUS_CYCLE.indexOf(t.status)+1) % STATUS_CYCLE.length] }
+  ));
+
+  const done    = tasks.filter(t => t.status === "Done").length;
+  const blocked = tasks.filter(t => t.status === "Blocked").length;
+  const inprog  = tasks.filter(t => t.status === "In Progress").length;
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="grid grid-cols-4 gap-3">
+        <Stat label="Total subtasks" value={tasks.length}/>
+        <Stat label="Done" value={done} total={tasks.length} accent="var(--ok)"/>
+        <Stat label="In progress" value={inprog}/>
+        <Stat label="Blocked" value={blocked} hint={blocked > 0 ? "needs attention" : "all clear"}/>
+      </div>
+
+      <Card className="p-0 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b hairline-2">
+          <div className="text-[13.5px] font-semibold">Subtasks</div>
+          <div className="flex items-center gap-2">
+            <span className="text-[11.5px] text-[var(--mute)]">Click status to cycle · click checkbox to mark done</span>
+            <Btn variant="outline" size="sm" icon={Icon.Plus} onClick={() => toast.push({ text:"New subtask added" })}>Add subtask</Btn>
+          </div>
+        </div>
+        <div className="divide-y hairline-2">
+          {tasks.map(t => (
+            <div key={t.id} className={cx("flex items-center gap-3 px-4 py-3 hover:bg-[#fafafa] group", t.status==="Done" && "opacity-55")}>
+              <div
+                className="w-4 h-4 rounded-[4px] border-2 flex items-center justify-center shrink-0 cursor-pointer transition-colors"
+                style={{ borderColor: t.status==="Done" ? "var(--ok)" : "var(--line)", background: t.status==="Done" ? "var(--ok)" : "transparent" }}
+                onClick={() => cycleStatus(t.id)}>
+                {t.status==="Done" && <Icon.Check width={9} height={9} className="text-white"/>}
+              </div>
+              <span className={cx("text-[13px] flex-1", t.status==="Done" && "line-through text-[var(--mute)]")}>{t.title}</span>
+              <button onClick={() => cycleStatus(t.id)} title="Click to cycle status">
+                <Chip tone={STATUS_TONE[t.status]}>{t.status}</Chip>
+              </button>
+              <Chip tone={PRIORITY_TONE[t.priority]}>{t.priority}</Chip>
+              <div className="flex items-center gap-1.5">
+                <Avatar name={t.assignee} size={20}/>
+                <span className="text-[11.5px] text-[var(--mute)]">{t.assignee.split(" ")[0]}</span>
+              </div>
+              <span className={cx("text-[11.5px] font-mono w-[54px] text-right shrink-0", t.status==="Blocked" ? "text-[var(--bad)]" : "text-[var(--mute)]")}>
+                {t.status==="Blocked" ? "Blocked" : t.due}
+              </span>
+              <button className="text-[var(--mute)] hover:text-[var(--ink)] opacity-0 group-hover:opacity-100"><Icon.DotsV width={13} height={13}/></button>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+};
 const ActivityLogTab = ({ a }) => (<div className="p-6"><Card className="p-4"><div className="text-[13.5px] font-semibold mb-3">Audit trail</div><div className="space-y-2">{[["created","Jane Doe","8 days ago"],["edited venue","Jane Doe","7 days ago"],["submitted for approval","Jane Doe","6 days ago"],["approved","Reem Abdulla","5 days ago"],["registration opened","System","5 days ago"],["added comms schedule","Jane Doe","4 days ago"],["47 students registered","System","ongoing"]].map(([t,by,when],i)=>(<div key={i} className="flex items-center gap-3 py-1.5 text-[12px]"><div className="w-1.5 h-1.5 rounded-full bg-[var(--mute-2)]"/><span className="text-[var(--ink)]">{t}</span><span className="text-[var(--mute)]">by {by}</span><span className="flex-1"/><span className="text-[var(--mute-2)] font-mono text-[11px]">{when}</span></div>))}</div></Card></div>);
 
 /* ============================================================ Certificate Modal */
