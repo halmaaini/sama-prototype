@@ -146,12 +146,12 @@ const SEMESTERS = ["Fall 2025-26", "Spring 2025-26", "Summer 2025", "Fall 2024-2
 
 /* Clubs */
 const CLUBS = [
-  { id:"cl1", name:"Computer Science Club",  members:124, leader:"Aisha Farhat", color:"#3a3dd9", joined:true },
-  { id:"cl2", name:"Debate Society",          members:68,  leader:"Omar Saleh",   color:"#0a7a78", joined:false },
-  { id:"cl3", name:"Photography Collective",  members:42,  leader:"Noura Al-Zaabi", color:"#b43664", joined:false },
-  { id:"cl4", name:"Football — Men's Team",   members:28,  leader:"Hassan Qureshi", color:"#b9812d", joined:true },
-  { id:"cl5", name:"Entrepreneurship Hub",    members:56,  leader:"Layla Khan",    color:"#7b5dea", joined:false },
-  { id:"cl6", name:"Volunteer Circle",        members:210, leader:"Mariam Al-Suwaidi", color:"#495266", joined:true },
+  { id:"cl1", name:"Computer Science Club",  members:124, leader:"Aisha Farhat",       leaderId:"c1", color:"#3a3dd9", joined:true,  category:"Academic", status:"Active",  founded:"2014", advisor:"Dr. Salim Hasan",   meeting:"Tuesdays 5:00 PM", room:"Lab 3, Eng Bldg", email:"cs.club@sama.ae",     description:"Building, hacking, and learning together. CS Club organises bootcamps, hackathons, and tech talks throughout the year.", pendingRequests:3 },
+  { id:"cl2", name:"Debate Society",          members:68,  leader:"Omar Saleh",         leaderId:"c2", color:"#0a7a78", joined:false, category:"Academic", status:"Active",  founded:"2010", advisor:"Prof. Abeer Ahmed",  meeting:"Thursdays 6:00 PM", room:"Auditorium B",     email:"debate@sama.ae",      description:"Sharpening minds through structured argument. Debate Society competes nationally and hosts public debates on campus.", pendingRequests:2 },
+  { id:"cl3", name:"Photography Collective",  members:42,  leader:"Noura Al-Zaabi",     leaderId:"c3", color:"#b43664", joined:false, category:"Cultural", status:"Active",  founded:"2018", advisor:"Ms. Hala Al-Maktoum", meeting:"Saturdays 10:00 AM", room:"Studio · Arts Bldg", email:"photo@sama.ae",   description:"Storytelling through the lens. Workshops, photo walks, exhibitions, and gear sharing.", pendingRequests:1 },
+  { id:"cl4", name:"Football — Men's Team",   members:28,  leader:"Hassan Qureshi",     leaderId:"c4", color:"#b9812d", joined:true,  category:"Sports",   status:"Active",  founded:"2008", advisor:"Coach Martinez",     meeting:"Tue & Thu 5:30 PM",  room:"Sports Field A",   email:"football@sama.ae",    description:"University football team — competing in the Inter-Universities League and friendly tournaments.", pendingRequests:4 },
+  { id:"cl5", name:"Entrepreneurship Hub",    members:56,  leader:"Layla Khan",         leaderId:"c5", color:"#7b5dea", joined:false, category:"Career",   status:"Pending", founded:"2025", advisor:"Dr. Yusuf Karim",    meeting:"Mondays 7:00 PM",    room:"Innovation Lab",   email:"ehub@sama.ae",         description:"From idea to pitch. Founder talks, mentor matching, startup competitions, and weekly co-working sessions.", pendingRequests:0 },
+  { id:"cl6", name:"Volunteer Circle",        members:210, leader:"Mariam Al-Suwaidi",  leaderId:"c6", color:"#495266", joined:true,  category:"Service",  status:"Active",  founded:"2012", advisor:"Ms. Reem Abdulla",   meeting:"Sundays 4:00 PM",    room:"Community Hall",   email:"volunteer@sama.ae",    description:"Community service and outreach — beach cleanups, school tutoring, hospital visits, Red Crescent partnerships.", pendingRequests:2 },
 ];
 
 window.SAMA = { TYPE_META, STATUS_META, CATEGORIES, VENUES, PEOPLE, ACTIVITIES, REGS_A1, SESSIONS_A7, DOCS_A1, TRANSPORT_A3, NOTIFS, CMD_ITEMS, SEMESTERS, CLUBS };

@@ -12,6 +12,7 @@ const NAV = [
   { id:"reports",       label:"Reports",          icon:"Chart",         badge:null },
 ];
 const NAV_SECONDARY = [
+  { id:"clubs",         label:"Clubs",            icon:"Users" },
   { id:"health",        label:"Health & Clinic",  icon:"Heart" },
   { id:"counselor",     label:"Counseling",       icon:"Sparkle" },
   { id:"docs",          label:"Documents",        icon:"Doc" },
