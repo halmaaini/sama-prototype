@@ -97,6 +97,8 @@ const WebHome = () => (
 
 const WebExplore = () => {
   const [filter, setFilter] = React.useState("All");
+  const [selfReport, setSelfReport] = React.useState(null);
+  const [reported, setReported] = React.useState(new Set());
   const types = ["All","Event","Volunteering","Program","External"];
   const filtered = filter === "All" ? SAMA.ACTIVITIES : SAMA.ACTIVITIES.filter(a => a.type === filter);
   return (
@@ -109,6 +111,14 @@ const WebExplore = () => {
           ))}
         </div>
       </div>
+      {filter === "External" && (
+        <div className="mb-4 p-3 rounded-[10px] bg-[var(--accent-wash)] border border-[var(--accent)]/20 flex items-start gap-3">
+          <Icon.Sparkle width={16} height={16} className="text-[var(--accent)] mt-0.5"/>
+          <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">
+            <b>External activities</b> are organised by other institutions. Register on the organiser's website, then come back and self-report so it appears on your transcript.
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-3 gap-3">
         {filtered.map(a => (
           <div key={a.id} className="bg-white border hairline rounded-[10px] overflow-hidden hover:border-[var(--mute-2)] cursor-pointer transition-colors">
@@ -119,12 +129,63 @@ const WebExplore = () => {
               <div className="text-[13px] font-semibold truncate">{a.title}</div>
               <div className="text-[11px] text-[var(--mute)] mt-0.5 flex items-center gap-1"><Icon.Cal width={10} height={10}/>{a.date}</div>
               <div className="mt-2 flex items-center justify-between">
-                {a.capacity && <span className="text-[10.5px] text-[var(--mute)]">{a.registered}/{a.capacity} going</span>}
-                <button className="text-[11.5px] text-[var(--accent)] font-medium ml-auto">Register →</button>
+                {a.type !== "External" && a.capacity && <span className="text-[10.5px] text-[var(--mute)]">{a.registered}/{a.capacity} going</span>}
+                {a.type === "External" ? (
+                  reported.has(a.id) ? (
+                    <span className="text-[11.5px] text-[var(--ok)] font-medium ml-auto flex items-center gap-1"><Icon.CheckCircle width={11} height={11}/>Self-reported</span>
+                  ) : (
+                    <button onClick={() => setSelfReport(a)} className="text-[11.5px] text-[var(--accent)] font-medium ml-auto">I attended this →</button>
+                  )
+                ) : (
+                  <button className="text-[11.5px] text-[var(--accent)] font-medium ml-auto">Register →</button>
+                )}
               </div>
             </div>
           </div>
         ))}
+      </div>
+      {selfReport && <SelfReportModal activity={selfReport} onClose={() => setSelfReport(null)} onSubmit={(id) => { setReported(prev => new Set([...prev, id])); setSelfReport(null); }}/>}
+    </div>
+  );
+};
+
+const SelfReportModal = ({ activity, onClose, onSubmit }) => {
+  const [date, setDate] = React.useState("");
+  const [role, setRole] = React.useState("Attendee");
+  const toast = useToast();
+  const submit = () => {
+    onSubmit(activity.id);
+    toast.push({ text:`Self-reported attendance · ${activity.title}`, icon:Icon.CheckCircle });
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target===e.currentTarget && onClose()}>
+      <div className="bg-white rounded-[16px] shadow-float w-[480px] overflow-hidden">
+        <div className="px-5 py-4 border-b hairline">
+          <div className="text-[15px] font-semibold">Self-report attendance</div>
+          <div className="text-[11.5px] text-[var(--mute)] mt-0.5">{activity.title}</div>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="text-[12px] text-[var(--ink-2)] leading-relaxed">
+            Since this is an external event, registration happened on the organiser's website. Tell us you attended so it appears on your participation transcript.
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Date you attended</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Your role</label>
+            <div className="flex gap-1.5 flex-wrap">
+              {["Attendee","Speaker","Volunteer","Organiser"].map(r => (
+                <button key={r} onClick={() => setRole(r)} className={cx("px-3 h-7 rounded-[6px] text-[11.5px] font-medium border transition-colors", role===r?"bg-[var(--ink)] text-white border-[var(--ink)]":"hairline text-[var(--mute)] hover:text-[var(--ink)]")}>{r}</button>
+              ))}
+            </div>
+          </div>
+          <div className="text-[11px] text-[var(--mute)]">Recorded as a self-reported participation. Staff may verify before issuing certificates.</div>
+        </div>
+        <div className="px-5 pb-4 flex justify-end gap-2">
+          <Btn variant="outline" onClick={onClose}>Cancel</Btn>
+          <Btn variant="default" icon={Icon.CheckCircle} onClick={submit}>Submit</Btn>
+        </div>
       </div>
     </div>
   );

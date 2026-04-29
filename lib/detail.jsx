@@ -369,12 +369,57 @@ const QRVisual = () => {
 const RegistrationsTab = ({ a }) => {
   const [filter, setFilter] = React.useState("All");
   const [certOpen, setCertOpen] = React.useState(false);
+  const toast = useToast();
+
+  const PAID = ["Free","Free","Free","AED 30","Free","Free","Free","AED 30","Free","Free","Free","AED 30"];
+  const DIET = ["—","Vegetarian","Halal","—","Vegan","—","—","Gluten-free","—","Halal","—","Vegan"];
+
+  const [people, setPeople] = React.useState(() => SAMA.PEOPLE.slice(0,12).map((p,i) => ({
+    ...p,
+    status: i>=8 ? "Waitlist" : "Confirmed",
+    waitlistPos: i>=8 ? i-7 : null,
+    paid: PAID[i],
+    dietary: DIET[i],
+    registered: `Oct ${14+i%6}, ${9+i%7}:${(i*7%60).toString().padStart(2,"0")}`,
+    checkedIn: i<5,
+  })));
+
+  const promote = id => {
+    setPeople(prev => {
+      const promoted = prev.map(p => p.id===id ? { ...p, status:"Confirmed", waitlistPos:null } : p);
+      return promoted.map(p => p.status==="Waitlist" ? { ...p, waitlistPos: promoted.filter(x => x.status==="Waitlist" && x.waitlistPos < p.waitlistPos).length + 1 } : p);
+    });
+    toast.push({ text:"Promoted to confirmed · email sent", icon:Icon.CheckCircle });
+  };
+
+  const removePerson = id => {
+    setPeople(prev => {
+      const removed = prev.filter(p => p.id !== id);
+      return removed.map((p,i) => p.status==="Waitlist" ? { ...p, waitlistPos: removed.filter(x => x.status==="Waitlist" && x.waitlistPos < p.waitlistPos).length + 1 } : p);
+    });
+    toast.push({ text:"Removed from list" });
+  };
+
+  const counts = {
+    All: people.length,
+    Confirmed: people.filter(p => p.status==="Confirmed").length,
+    Waitlist: people.filter(p => p.status==="Waitlist").length,
+    Cancelled: 4,
+  };
+
+  const filtered = filter==="All" ? people : people.filter(p => p.status===filter);
+
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Input icon={Icon.Search} placeholder="Search registrations…" size="sm" className="w-[260px]"/>
-          <Segmented size="sm" value={filter} onChange={setFilter} items={[{value:"All",label:"All 47"},{value:"Confirmed",label:"Confirmed 38"},{value:"Waitlist",label:"Waitlist 12"},{value:"Cancelled",label:"Cancelled 4"}]}/>
+          <Segmented size="sm" value={filter} onChange={setFilter} items={[
+            {value:"All",label:`All ${counts.All}`},
+            {value:"Confirmed",label:`Confirmed ${counts.Confirmed}`},
+            {value:"Waitlist",label:`Waitlist ${counts.Waitlist}`},
+            {value:"Cancelled",label:`Cancelled ${counts.Cancelled}`},
+          ]}/>
         </div>
         <div className="flex items-center gap-2">
           <Btn variant="outline" size="sm" icon={Icon.Download}>Export CSV</Btn>
@@ -386,33 +431,49 @@ const RegistrationsTab = ({ a }) => {
 
       {certOpen && <CertModal onClose={() => setCertOpen(false)} activityTitle={a.title}/>}
 
+      {filter==="Waitlist" && counts.Waitlist > 0 && (
+        <div className="mb-3 p-3 rounded-[10px] bg-[var(--warn-wash)] border border-[var(--warn)]/20 flex items-center gap-3">
+          <Icon.AlertTri width={16} height={16} className="text-[var(--warn)]"/>
+          <div className="text-[12px] text-[var(--ink-2)] flex-1">
+            <b>{counts.Waitlist} on waitlist.</b> Promote individuals manually or wait for the system to auto-promote when a confirmed seat opens.
+          </div>
+        </div>
+      )}
+
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-[12.5px]">
           <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
             <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-medium">
               <th className="w-8"><input type="checkbox"/></th>
-              <th>Student</th>
-              <th>Department</th>
-              <th>Registered</th>
-              <th>Status</th>
-              <th>Paid</th>
-              <th>Dietary</th>
-              <th>Check-in</th>
-              <th className="w-8"></th>
+              <th>Student</th><th>Department</th><th>Registered</th><th>Status</th>
+              <th>Paid</th><th>Dietary</th><th>Check-in</th>
+              <th className="w-[140px]">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {SAMA.PEOPLE.slice(0,12).map((p,i) => (
-              <tr key={p.id} className="border-b hairline-2 hover:bg-[#fafafa]">
-                <td className="px-3 py-2"><input type="checkbox" defaultChecked={i<3}/></td>
+            {filtered.map(p => (
+              <tr key={p.id} className="border-b hairline-2 hover:bg-[#fafafa] group">
+                <td className="px-3 py-2"><input type="checkbox"/></td>
                 <td className="px-3 py-2"><div className="flex items-center gap-2"><Avatar name={p.name} size={22}/><div><div className="font-medium text-[var(--ink)]">{p.name}</div><div className="text-[11px] text-[var(--mute)]">{p.sid}</div></div></div></td>
                 <td className="px-3 py-2 text-[var(--mute)]">{p.dept}</td>
-                <td className="px-3 py-2 text-[11.5px] font-mono text-[var(--mute)]">{`Oct ${14+i%6}, ${9+i%7}:${(i*7%60).toString().padStart(2,"0")}`}</td>
-                <td className="px-3 py-2">{i>=8 ? <Chip tone="amber">Waitlist</Chip> : <Chip tone="green">Confirmed</Chip>}</td>
-                <td className="px-3 py-2 text-[var(--mute)]">{["Free","Free","Free","AED 30","Free","Free","Free","AED 30"][i%8]}</td>
-                <td className="px-3 py-2 text-[11.5px] text-[var(--mute)]">{["—","Vegetarian","Halal","—","Vegan","—","—","Gluten-free"][i%8]}</td>
-                <td className="px-3 py-2">{i<5 ? <span className="chip bg-[var(--ok-wash)] text-[var(--ok)]"><Icon.Check width={10} height={10}/> in</span> : <span className="text-[11.5px] text-[var(--mute-2)]">pending</span>}</td>
-                <td className="px-3 py-2"><button className="text-[var(--mute)] hover:text-[var(--ink)]"><Icon.DotsV width={13} height={13}/></button></td>
+                <td className="px-3 py-2 text-[11.5px] font-mono text-[var(--mute)]">{p.registered}</td>
+                <td className="px-3 py-2">
+                  {p.status==="Waitlist" ? <Chip tone="amber">Waitlist · #{p.waitlistPos}</Chip> : <Chip tone="green">Confirmed</Chip>}
+                </td>
+                <td className="px-3 py-2 text-[var(--mute)]">{p.paid}</td>
+                <td className="px-3 py-2 text-[11.5px] text-[var(--mute)]">{p.dietary}</td>
+                <td className="px-3 py-2">{p.checkedIn ? <span className="chip bg-[var(--ok-wash)] text-[var(--ok)]"><Icon.Check width={10} height={10}/> in</span> : <span className="text-[11.5px] text-[var(--mute-2)]">pending</span>}</td>
+                <td className="px-3 py-2">
+                  {p.status==="Waitlist" ? (
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => promote(p.id)} className="text-[11.5px] text-[var(--accent)] font-semibold hover:underline">Promote</button>
+                      <span className="text-[var(--mute-2)]">·</span>
+                      <button onClick={() => removePerson(p.id)} className="text-[11.5px] text-[var(--bad)] hover:underline">Remove</button>
+                    </div>
+                  ) : (
+                    <button className="text-[var(--mute)] hover:text-[var(--ink)] opacity-0 group-hover:opacity-100"><Icon.DotsV width={13} height={13}/></button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -769,7 +830,74 @@ const FeedbackTab = ({ a }) => {
     </div>
   );
 };
-const RosterTab = ({ a }) => <RegistrationsTab a={a}/>;
+const RosterTab = ({ a }) => {
+  const POSITIONS = ["Striker","Midfielder","Defender","Goalkeeper"];
+  const STATUSES = ["Starter","Reserve","Trialist","Injured","Suspended"];
+  const STATUS_TONE = { Starter:"green", Reserve:"slate", Trialist:"indigo", Injured:"amber", Suspended:"red" };
+  const KIT_SIZES = ["S","M","M","L","L","M","XL","M","L","S","M","L","XL","M","L","S"];
+
+  const [players, setPlayers] = React.useState(() => SAMA.PEOPLE.slice(0,16).map((p,i) => ({
+    ...p, jersey: i+1, position: POSITIONS[i%POSITIONS.length],
+    status: i<11 ? "Starter" : i<14 ? "Reserve" : i===14 ? "Injured" : "Trialist",
+    kitSize: KIT_SIZES[i], kitIssued: i<13,
+  })));
+  const toast = useToast();
+
+  const cycleStatus = id => setPlayers(prev => prev.map(p => p.id !== id ? p : { ...p, status: STATUSES[(STATUSES.indexOf(p.status)+1) % STATUSES.length] }));
+  const toggleKit  = id => setPlayers(prev => prev.map(p => p.id !== id ? p : { ...p, kitIssued: !p.kitIssued }));
+
+  const stats = {
+    total: players.length,
+    starters: players.filter(p => p.status==="Starter").length,
+    reserves: players.filter(p => p.status==="Reserve").length,
+    sidelined: players.filter(p => ["Injured","Suspended"].includes(p.status)).length,
+    kitIssued: players.filter(p => p.kitIssued).length,
+  };
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="grid grid-cols-5 gap-3">
+        <Stat label="Squad size" value={stats.total}/>
+        <Stat label="Starters" value={stats.starters} accent="var(--ok)"/>
+        <Stat label="Reserves" value={stats.reserves}/>
+        <Stat label="Sidelined" value={stats.sidelined} hint="injured/suspended"/>
+        <Stat label="Kit issued" value={`${stats.kitIssued}/${stats.total}`}/>
+      </div>
+      <Card className="p-0 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b hairline-2">
+          <div>
+            <div className="text-[13.5px] font-semibold">Team roster</div>
+            <div className="text-[11px] text-[var(--mute)]">Click status chip to cycle · click kit badge to toggle</div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Btn variant="outline" size="sm" icon={Icon.Download} onClick={() => toast.push({ text:"Team sheet PDF generated" })}>Team sheet PDF</Btn>
+            <Btn variant="outline" size="sm" icon={Icon.Plus}>Add player</Btn>
+          </div>
+        </div>
+        <table className="w-full text-[12.5px]">
+          <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
+            <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:font-medium">
+              <th className="w-12">#</th><th>Player</th><th>Position</th><th>Status</th><th>Kit size</th><th>Kit issued</th><th className="w-8"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {players.map(p => (
+              <tr key={p.id} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
+                <td className="px-4 py-2 font-mono font-semibold text-[var(--ink)]">#{p.jersey}</td>
+                <td className="px-4 py-2"><div className="flex items-center gap-2"><Avatar name={p.name} size={22}/><div><div className="font-medium text-[var(--ink)]">{p.name}</div><div className="text-[11px] text-[var(--mute)]">{p.sid}</div></div></div></td>
+                <td className="px-4 py-2 text-[var(--mute)]">{p.position}</td>
+                <td className="px-4 py-2"><button onClick={() => cycleStatus(p.id)}><Chip tone={STATUS_TONE[p.status]}>{p.status}</Chip></button></td>
+                <td className="px-4 py-2 text-[var(--mute)] font-mono">{p.kitSize}</td>
+                <td className="px-4 py-2"><button onClick={() => toggleKit(p.id)}>{p.kitIssued ? <Chip tone="green">Issued</Chip> : <Chip tone="slate">Pending</Chip>}</button></td>
+                <td className="px-4 py-2"><button className="text-[var(--mute)] hover:text-[var(--ink)]"><Icon.DotsV width={13} height={13}/></button></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
+    </div>
+  );
+};
 const AttendanceTab = ({ a }) => (<div className="p-6"><Card className="p-5"><div className="text-[13.5px] font-semibold mb-3">Session-by-session attendance</div><div className="grid grid-cols-[200px,repeat(12,1fr)] gap-1 text-[10.5px]"><div className="font-medium">Student</div>{Array.from({length:12}).map((_,i)=><div key={i} className="text-center font-mono text-[var(--mute)]">W{i+1}</div>)}{SAMA.PEOPLE.slice(0,10).map(p=>(<React.Fragment key={p.id}><div className="flex items-center gap-1.5 truncate"><Avatar name={p.name} size={16}/><span className="truncate">{p.name.split(" ")[0]}</span></div>{Array.from({length:12}).map((_,w)=>{const r=Math.random(); return <div key={w} className={cx("h-6 rounded-[3px]", w>5?"bg-[#f1f2ef]": r>.85?"bg-[var(--bad-wash)]": r>.7?"bg-[var(--warn-wash)]":"bg-[var(--ok-wash)]")}/>;})}</React.Fragment>))}</div></Card></div>);
 const SubtasksTab = ({ a }) => {
   const STATUS_CYCLE = ["To Do", "In Progress", "Blocked", "Done"];
