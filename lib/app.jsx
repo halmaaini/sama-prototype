@@ -97,6 +97,7 @@ const App = () => {
                 {route === "reports" && <Reports/>}
                 {route === "notifications" && <Notifications/>}
                 {route === "student" && <Student/>}
+                {route === "health" && <Health/>}
                 {(route === "transport" || route === "docs" || route === "certs" || route === "feedback" || route === "venues") && <Modules/>}
               </main>
             </div>
