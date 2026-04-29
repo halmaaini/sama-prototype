@@ -13,6 +13,7 @@ const NAV = [
 ];
 const NAV_SECONDARY = [
   { id:"health",        label:"Health & Clinic",  icon:"Heart" },
+  { id:"counselor",     label:"Counseling",       icon:"Sparkle" },
   { id:"docs",          label:"Documents",        icon:"Doc" },
   { id:"transport",     label:"Transportation",   icon:"Bus" },
   { id:"venues",        label:"Venues",           icon:"Pin" },
