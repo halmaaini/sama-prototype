@@ -108,9 +108,17 @@ const PinnedLink = ({ label, type, onClick }) => {
 
 const RoleBlock = ({ role, setRole }) => {
   const [open, setOpen] = React.useState(false);
+  const { go } = useApp();
   const profile = role==="ops" ? { name:"Reem Abdulla", sub:"Ops Manager" }
                 : role==="coord" ? { name:"Jane Doe", sub:"Coordinator" }
+                : role==="student" ? { name:"Fatima Al-Nuaimi", sub:"Student · Engineering" }
                 : { name:"Aisha Farhat", sub:"Club Leader · CS Club" };
+  const pickRole = (id) => {
+    setRole(id);
+    setOpen(false);
+    if (id === "student") go("student");
+    else if (role === "student") go("home");
+  };
   return (
     <div className="relative">
       <button onClick={()=>setOpen(!open)} className="w-full flex items-center gap-2.5 px-2 py-1.5 rounded-[8px] hover:bg-[#f4f4f2] transition-colors">
@@ -126,8 +134,8 @@ const RoleBlock = ({ role, setRole }) => {
           <div className="px-2 py-1.5 border-b hairline mb-1">
             <div className="text-[10.5px] uppercase tracking-wider font-semibold text-[var(--mute)]">View as</div>
           </div>
-          {[{id:"ops",label:"Ops Manager",hint:"Full access, approvals"},{id:"coord",label:"Coordinator",hint:"Their activities"},{id:"club",label:"Club Leader",hint:"Single club"}].map(opt => (
-            <button key={opt.id} onClick={()=>{setRole(opt.id);setOpen(false);}} className={cx("w-full flex items-start gap-2 px-2 py-1.5 rounded-[6px] hover:bg-[#f4f4f2] text-left", role===opt.id && "bg-[#eef0f3]")}>
+          {[{id:"ops",label:"Ops Manager",hint:"Full access, approvals"},{id:"coord",label:"Coordinator",hint:"Their activities"},{id:"club",label:"Club Leader",hint:"Single club"},{id:"student",label:"Student",hint:"Student portal view"}].map(opt => (
+            <button key={opt.id} onClick={()=>pickRole(opt.id)} className={cx("w-full flex items-start gap-2 px-2 py-1.5 rounded-[6px] hover:bg-[#f4f4f2] text-left", role===opt.id && "bg-[#eef0f3]")}>
               <span className="mt-0.5">{role===opt.id ? <Icon.CheckCircle width={14} height={14} className="text-[var(--accent)]"/> : <Icon.Circle width={14} height={14} className="text-[#c2c7d0]"/>}</span>
               <span>
                 <div className="text-[12.5px] font-medium leading-tight">{opt.label}</div>
