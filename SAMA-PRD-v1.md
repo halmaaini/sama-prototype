@@ -158,6 +158,22 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 - **ReportDefinition**: id, name, owner_user_id, entity_scope, filters (JSON), columns (JSON), grouping, schedule (optional).
 - **DashboardWidget**: pre-built widgets configured per role.
 
+### 4.12 Surveys
+- **Survey**: id, activity_id, is_standard (bool), questions (ordered list of question objects), created_at, created_by.
+- **SurveyQuestion**: id, survey_id, type {rating_1_5, yes_no, single_choice, multi_choice, open_text, nps}, prompt, options[] (for choice types), required (bool), is_standard (bool — locked, can't be removed).
+- **SurveyDispatch**: id, survey_id, recipient_user_id, dispatched_at, submitted_at (nullable). Links recipient to dispatch but NOT to response content.
+- **SurveyResponse**: id, survey_id, submitted_at, answers (JSON keyed by question_id). **No student_id**. Anonymity enforced at schema level.
+
+### 4.13 Media gallery
+- **MediaItem**: id, parent_type {activity, club}, parent_id, uploader_user_id, type {photo, video}, file_url, thumbnail_url, caption, is_internal (bool — internal-only flag), uploaded_at, deleted_at (soft delete).
+
+### 4.14 Follow-up tasks
+- **FollowUpTask**: id, parent_type {activity, club}, parent_id, title, description, owner_user_id, due_date, status {open, in_progress, completed, cancelled}, priority {low, normal, high}, created_by, created_at, completed_at, completion_note.
+
+### 4.15 Closure artifacts
+- **PostEventReport** (optional): id, activity_id, outcomes_summary, attendance_highlights, issues, lessons_learned, suggestions, created_by, created_at, updated_at.
+- **ActivityClosure**: id, activity_id, closed_by, closed_at, reopened_at (nullable), reopened_by, reopen_reason. Append-only audit-style record of close/reopen events (one row per close cycle).
+
 ---
 
 ## 5. Master activity lifecycle
@@ -181,10 +197,11 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 | **Published** | Coordinator/Manager | Coordinator publishes after approval. Now visible to students. |
 | **RegistrationOpen** | system | When `registration_opens_at` is reached (and Published). |
 | **RegistrationClosed** | system | When `registration_closes_at` reached or capacity hit + waitlist closed. |
-| **InProgress** | system | When `start_at` reached. |
-| **Completed** | system | After `end_at` and final attendance recorded. |
+| **InProgress** | system | When `start_at` reached. Activity stays InProgress past `end_at` until manually closed (see §13.1). |
+| **Completed** | Coordinator (own) / Manager | **Manual close only.** Coordinator clicks "Close activity" → completion calc runs, surveys dispatch, certificates generate. See §13.1. |
 | **Cancelled** | Coordinator (own) / Manager | Manual; sends notifications, marks all registrations Cancelled. |
 | **Archived** | Manager / system | After retention period (rule TBD; retention deferred). |
+| **(Reopen)** | Coordinator (own) / Manager | A Completed activity can be reopened with reason → state returns to InProgress. See §13.2. |
 
 ### 5.2 Transition rules
 
@@ -205,7 +222,8 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Campaign**: may have no registration (open attendance) or registration for specific roles (volunteer slots). Attendance optional. Certificates optional.
 
 ### 5.4 System-driven state changes
-- A scheduled job evaluates time-based transitions (registration open/close, in-progress, completed) every minute.
+- A scheduled job evaluates time-based transitions (registration open/close, in-progress) every minute.
+- The transition to **Completed is manual** (Coordinator/Manager clicks "Close activity"). Past `end_at`, the activity stays InProgress and a "Ready to close" badge surfaces in the Coordinator dashboard.
 - All state transitions emit `AuditEvent` and may trigger notifications.
 
 ---
@@ -317,8 +335,9 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 ### 8.4 Completion calculation
 - For courses: `present_count / total_sessions ≥ completion_threshold` → Completed.
 - For events/workshops: present at the (single) session → Completed.
-- Optional **deliverable requirement**: if `requires_deliverable = true`, student must submit a deliverable (file/text) and be marked "deliverable accepted" by Coordinator/Employee before Completed.
-- Completion happens automatically when criteria are met OR can be manually flipped by Coordinator with reason (audit-logged).
+- Completion is **finalized at manual closure** (§13.1). Until then, "would-be" status is shown as preview only.
+- Coordinator can manually flip a student's status with reason (audit-logged) before or after closure.
+- *(Deferred: deliverable-based completion not in v1.)*
 
 ### 8.5 Edits & corrections
 - Attendance can be corrected by Coordinator/Employee on assigned activity for X days post-session (configurable, e.g. 7 days). Edits are audit-logged.
@@ -334,9 +353,12 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - Manager manages templates (CRUD).
 
 ### 9.2 Issuance
-- Auto-generated when a registration reaches **Completed** state.
-- Generated as PDF, stored, and made available to the student via in-app download + email.
-- Each certificate has a unique **verification code** and a public verify URL: anyone (without login) can paste the code to confirm authenticity.
+- Auto-generated when a registration reaches **Completed** state — which only happens after the Coordinator manually closes the activity (see §13.1).
+- Generated as PDF, stored, with a unique **verification code** and a public verify URL.
+- **Survey gating** (default for any activity that issues certificates): the certificate is generated and exists, but the student cannot download/view it until they submit the standard post-activity survey (§13.3). Locked-state UI shows "Submit your feedback to unlock your certificate."
+- **Override**: Coordinator (own) or Manager can release a certificate to a specific student without survey submission, with reason (audit-logged).
+- **Auto-release fallback**: 30 days post-closure, certificates auto-unlock regardless of survey status.
+- Anyone (without login) can paste the verification code on the public verify URL to confirm authenticity.
 
 ### 9.3 Revocation
 - Coordinator (own activity) or Manager can revoke a certificate with reason (e.g. attendance was wrongly recorded).
@@ -382,12 +404,12 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Booking**: student selects a slot, optionally provides a brief reason. Confirmation via in-app + email. Reminder 24h before via push + email.
 - **Cancellation**: student or counselor can cancel up to a configurable window before the slot. Late cancellation recorded.
 - **Session record**: counselor opens the appointment, fills **CounselingNote** (body, attachments). Marks status (Completed / NoShow / Cancelled).
-- **Visibility**: notes visible to that counselor + Manager. Other Employees do not see them. Students see only that the appointment occurred (date/time/counselor); no notes by default. Audit log records every read of a note (sensitive data viewing) — see §13.4.
+- **Visibility**: notes visible to that counselor + Manager. Other Employees do not see them. Students see only that the appointment occurred (date/time/counselor); no notes by default. Audit log records every read of a note (sensitive data viewing) — see §14.4.
 
 ### 11.2 Health
 - **Appointments**: same shape as counseling — slots, booking, reminders, cancellation, post-visit notes.
 - **Walk-in visit logs**: Employee (health staff) records a walk-in: select student, complaint, action, referral, follow-up flag, notes. No prior booking required.
-- **Visibility**: appointment notes and visit logs visible to all health staff (Employee assigned to health) + Manager (configurable to "only the staff who logged" if stricter — see gap §17). Students see only the date/time/staff and a summary if exposed.
+- **Visibility**: appointment notes and visit logs visible to all health staff (Employee assigned to health) + Manager (configurable to "only the staff who logged" if stricter — see gap §18). Students see only the date/time/staff and a summary if exposed.
 
 ### 11.3 Sensitive-data handling
 - **No special privacy mode** beyond standard RBAC (decision: Manager sees all).
@@ -423,9 +445,125 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 
 ---
 
-## 13. Cross-cutting concerns
+## 13. Module — Post-event workflow
 
-### 13.1 Notifications
+This module defines what happens after `end_at` passes: closure, surveys, certificates, media gallery, follow-up tasks, and cloning. Activity types differ in detail (Campaigns may skip surveys/certificates) but follow the same flow.
+
+### 13.1 Closure mechanics
+
+- **Manual close only**. After `end_at`, the activity remains in **InProgress** until the Coordinator (own) or Manager clicks **Close activity**. The system does NOT auto-close.
+- The Coordinator dashboard surfaces a **"Ready to close"** badge for any InProgress activity past `end_at` so they don't forget.
+- Pre-close checklist shown to Coordinator (warnings, not blockers — they can close anyway):
+  - Attendance recorded for all sessions.
+  - Budget transactions reconciled (actual vs. approved).
+  - Optional post-event report filled (template available).
+  - Media uploaded (optional).
+  - Follow-up tasks created (optional).
+- On click **Close activity**:
+  1. Activity state → **Completed**.
+  2. Final completion calculation runs: each registration evaluated against attendance threshold → status set to **Completed** or **Failed**; remaining unresolved → **NoShow**.
+  3. Standard survey is dispatched to all attendees (in-app + email + push).
+  4. Certificates are generated for those who Completed (per §9), but **visibility/download depends on survey gating** — see §13.3.
+  5. Audit event logged.
+
+### 13.2 Reopening a closed activity
+
+- Coordinator (own) or Manager can **Reopen** a Completed activity with a reason (audit-logged).
+- On reopen:
+  - State → **InProgress**.
+  - Attendance becomes editable again by Coordinator/Employee.
+  - Surveys remain open (already dispatched stay valid; new attendees added would receive a new dispatch on next close).
+  - Issued certificates **remain valid** (verifiable via public URL). They are not retracted automatically — to revoke, use the explicit Revoke action (§9.3) which is logged separately.
+  - Follow-up tasks remain unchanged.
+- Re-closure runs the same pipeline as §13.1, with one difference: only newly-completed registrations get NEW certificates; existing certificates are not re-issued unless explicitly regenerated.
+
+### 13.3 Surveys & feedback
+
+- **Standard survey** is auto-attached to every activity at creation. Defaults: overall rating (1–5), facilitator/Employee rating (1–5), would-recommend (Y/N), open comment.
+- **Optional customization**: Coordinator can add custom questions (rating, multiple-choice, open text, NPS) at activity creation or before closure. Cannot remove standard questions.
+- **Anonymity**: anonymous to all staff. Responses are aggregated; no field links a response to a student. This is enforced at the data layer:
+  - SurveyResponse table has no `student_id` foreign key.
+  - A separate `SurveyDispatch` table tracks who was sent the survey (and whether they submitted) — this lets the system show a student "you've already submitted" without linking the content of their response to them.
+- **Dispatch trigger**: surveys go out at closure (§13.1 step 3) — not when end_at passes, not at registration.
+- **Reminders**: in-app + email reminders at +3 days and +7 days post-closure if unsubmitted. After +14 days, no further reminders.
+- **Open window**: surveys remain open indefinitely (no hard close). Manager can still see results months later.
+- **Certificate gating** (for activities that issue certificates):
+  - Certificate is generated and exists, but **download/view is locked** until the student submits the standard survey.
+  - Locked-state UI: "Submit your feedback to unlock your certificate."
+  - **Override**: Coordinator (own) or Manager can release the certificate to a specific student without survey submission, with reason (audit-logged).
+  - **Auto-release fallback**: after 30 days post-closure, certificates auto-unlock regardless of survey status (configurable; prevents indefinite lock-out).
+- **Activities without certificates**: surveys are still sent; reminders apply; no gating mechanic.
+- **Result viewing**:
+  - Coordinator (own activity): aggregate stats + free-text comments (anonymous).
+  - Manager: aggregate stats across all activities + drill-in to per-activity comments. Custom report builder can pivot survey results.
+  - Employees: do not see survey results unless they are co-coordinators.
+
+### 13.4 Media gallery
+
+- **Upload**: Coordinator (own) or assigned Employees can upload photos and short videos at any time during InProgress or after Completed. Bulk upload supported.
+- **Visibility**: visible to **all logged-in students** (browseable archive of past activities). Not public-without-login.
+- **Per-activity gallery page**: shows uploaded media with optional captions.
+- **Activity-archive view**: students can browse past activities (filterable by club, type, year) and view their galleries.
+- **Moderation**: only Coordinator/Employee/Manager can upload or delete. Students cannot upload.
+- **Privacy**: at upload time, Coordinator can mark a single photo as "internal only" (Manager + Coordinator/Employee see it; students don't). Useful for receipts, behind-the-scenes, etc.
+- **Storage**: media files stored with signed URLs (time-limited for fetch). File size limits and image compression applied automatically.
+- **Welfare module exclusion**: counseling and health appointments do NOT have media galleries. The gallery feature is exclusive to activities (events/courses/workshops/campaigns) and clubs.
+
+### 13.5 Follow-up tasks
+
+- A **FollowUpTask** is a structured action item attached to an activity (or a club).
+- Created by Coordinator (own) or Manager. Anyone with edit rights on the parent activity can create.
+- **Fields**: id, parent (activity_id or club_id), title, description, owner_user_id, due_date, status {open, in_progress, completed, cancelled}, priority {low, normal, high}, created_by, created_at, completed_at, completion_note.
+- **Owner** is any user (typically Coordinator or Employee). Owner sees the task in their personal dashboard.
+- **Due-date reminders**: notification at -3 days, -1 day, on due date, and on overdue.
+- **Visibility**: parent-activity Coordinators + assigned Employees + Manager + the task owner.
+- **Bulk view**: Manager has an "All open follow-ups" view filterable by activity, owner, due date, overdue.
+- **Examples**: "Send thank-you email to keynote speaker", "Submit final report to dean", "Pay vendor invoice", "Write blog post for university website".
+- **Closure of activity does not require all tasks done** — tasks can outlive activity closure.
+
+### 13.6 Activity cloning
+
+- Coordinator (any) or Manager can click **Clone** on any activity (regardless of state) to create a new **Draft**.
+- **What is cloned**:
+  - Type, title (suffixed " (Copy)"), description, category/tags, language.
+  - Eligibility rules, prerequisites.
+  - Capacity, waitlist settings, cancellation cutoff.
+  - Sessions structure (number of sessions and their relative offsets) — but **dates are blanked**, Coordinator must set new dates.
+  - Planned budget line items (planned amount only; approved/actual reset to 0).
+  - Standard + custom survey questions.
+  - Attachments (poster, agenda) — Coordinator can keep or remove.
+  - Certificate template choice.
+- **What is NOT cloned**: registrations, attendance, certificates, survey responses, media, transactions, follow-up tasks, audit history.
+- The cloned Draft enters the standard approval flow: Coordinator edits dates → Submits → Manager approves → Publishes.
+- **Lessons-learned database**: not in v1. Knowledge transfers via clone + Coordinator memory.
+
+### 13.7 Optional post-event report
+
+- Template available at closure. Coordinator can fill or skip.
+- **Fields**: outcomes summary, attendance highlights, issues encountered, lessons learned, suggestions for next time, links to media/follow-up tasks, references to budget variance.
+- Stored against the activity. Visible to: Coordinator (own), Manager.
+- Can be exported as PDF.
+- **Not required** for closure. Not required for certificate issuance.
+- Manager can request one after the fact (manual nudge; no system-blocking).
+
+### 13.8 Notifications triggered by post-event flow
+
+| Event | Recipients | Channels |
+|-------|------------|----------|
+| Activity Closed | Coordinator (own), Manager | In-app |
+| Survey dispatched | Each attendee | In-app + email + push |
+| Survey reminder (+3d, +7d) | Attendees who haven't submitted | In-app + email |
+| Certificate unlocked (after survey) | Student | In-app + email |
+| Certificate auto-released (+30d) | Student | In-app + email |
+| Activity Reopened | Coordinator, Manager, Employees on activity | In-app |
+| Follow-up task assigned | Task owner | In-app + email |
+| Follow-up task due in 3d / 1d / today / overdue | Task owner | In-app + email + push (overdue) |
+
+---
+
+## 14. Cross-cutting concerns
+
+### 14.1 Notifications
 - **Channels**: in-app (always), email, push (PWA web push).
 - **Categories** (each user can opt out per category, except critical):
   - Activity announcements (new activity matching my eligibility)
@@ -441,7 +579,7 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Delivery**: queue-based; retries with backoff; failures audit-logged.
 - **Quiet hours**: optional per-user no-push window (e.g. 10pm–7am).
 
-### 13.2 Reports & dashboards
+### 14.2 Reports & dashboards
 - **Pre-built dashboards** (per role):
   - **Manager**: pending approvals, active activities, registrations this week, attendance rate trend, no-show rate, budget burn, certificates issued, club activity, welfare service load (counts only).
   - **Coordinator**: my activities by state, my registration counts, my upcoming sessions, my budget status, items needing my action.
@@ -454,12 +592,12 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - Save as a definition; optionally schedule (email weekly, monthly).
 - **Scheduled reports**: Manager can have any saved report emailed to themselves on a schedule.
 
-### 13.3 Exports
+### 14.3 Exports
 - CSV/Excel: any list (registration roster, attendance sheet, transactions, custom report results).
 - PDF: formatted attendance sheets (printable), certificate batches, end-of-period summaries with branding.
 - Welfare data exports: Manager only, audit-logged with reason.
 
-### 13.4 Audit log
+### 14.4 Audit log
 - **Full**: every state change, edit, deletion, approval, certificate issue/revoke, role change, login, registration, attendance edit, note read (welfare).
 - **Fields**: actor, action, target, before/after JSON, IP, user agent, timestamp.
 - **Visibility**: Manager only.
@@ -467,29 +605,29 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Search & filter**: by actor, target, action type, date range.
 - **Note**: not labeled "immutable" per the explicit decision (full but normal-edit-protected, not write-once); operationally, no UI affordance to edit/delete log entries.
 
-### 13.5 Schedule conflict detection
+### 14.5 Schedule conflict detection
 - Activities: blocking, as described in §7.4.
 - Welfare appointments: a student can't double-book a counseling/health slot at the same time as another welfare appointment (block).
 - Cross-conflict (welfare ↔ activity): warn but allow (welfare appointments often shorter and the student may legitimately rearrange).
 
-### 13.6 No-show tracking
+### 14.6 No-show tracking
 - Tracked at registration level (`status = NoShow`) and welfare appointment level.
 - Visible in student profile to Manager / Coordinator (for activities) or counselor / health staff + Manager (for welfare).
 - No automatic penalties; report-driven only.
 
-### 13.7 Search & discovery
+### 14.7 Search & discovery
 - Global search (header) for Manager: across activities, students, clubs, transactions.
 - Student catalog search: by keyword, type, category/tag, date range.
 
-### 13.8 Internationalization
+### 14.8 Internationalization
 - English only in v1. UI strings externalized to enable later Arabic/RTL addition without refactor.
 
-### 13.9 Data retention
+### 14.9 Data retention
 - Deferred. v1 keeps all records. The audit log table is designed for append-only and will support a future retention policy without redesign.
 
 ---
 
-## 14. End-to-end scenarios
+## 15. End-to-end scenarios
 
 These scenarios trace real interactions across modules to expose gaps.
 
@@ -579,9 +717,47 @@ These scenarios trace real interactions across modules to expose gaps.
 2. Scans the QR or visits the verify URL with the code.
 3. Public page shows: student name, activity title, dates, status (Valid / Revoked / Superseded). No login required.
 
+### Scenario L — Manual closure with survey-gated certificates
+
+1. The 4-session course from Scenario A has finished its last session yesterday. State remains **InProgress**; Coordinator's dashboard shows a "Ready to close" badge.
+2. Coordinator opens the activity, reviews attendance, records final budget transactions, uploads 12 photos to the gallery, creates 2 follow-up tasks ("Send thank-you to facilitator", due in 3 days; "Submit faculty report", due in 7 days), and skips the optional post-event report.
+3. Coordinator clicks **Close activity**. System:
+   - Sets state → **Completed**.
+   - Computes completion: 20 students Completed, 5 Failed.
+   - Generates 20 certificates (locked).
+   - Dispatches the standard survey to all 25 attendees in-app + email + push.
+   - Logs ActivityClosure record + AuditEvent.
+4. Student opens their profile → sees "Public Speaking 101 — Certificate (Locked). Submit your feedback to unlock." Clicks → fills the 4 standard questions + 1 custom question added by Coordinator.
+5. On submit: SurveyResponse stored anonymously; SurveyDispatch row marked submitted; certificate unlocks; in-app + email "Your certificate is ready" notification fires.
+6. Three days later, 5 students still haven't filled the survey → +3d reminder fires. After +7d, second reminder. After +30d, those 5 certificates auto-unlock; in-app + email "Your certificate has been released" fires.
+7. Coordinator opens survey results: aggregate rating 4.3/5, NPS 65, 18 free-text comments — no names attached.
+8. One follow-up task hits its due date — owner gets push notification "Submit faculty report due today".
+
+### Scenario M — Reopen for attendance correction
+
+1. After Scenario L, a student emails Coordinator: "I was at session 3 but the QR didn't scan."
+2. Coordinator clicks **Reopen activity** with reason "Attendance correction for student X".
+3. System: state → **InProgress**; AuditEvent + ActivityClosure.reopened_at logged. Existing certificates remain valid; surveys remain accessible.
+4. Coordinator marks the student Present for session 3 → recomputed status: that student moves from Failed → Completed.
+5. Coordinator clicks **Close activity** again. System: state → Completed. Now-completed student gets a new certificate (locked behind survey, same flow).
+6. Other 19 students whose certificates already exist are unaffected — no duplicates issued.
+
+### Scenario N — Cloning for next semester
+
+1. New semester starts; Coordinator wants to run "Public Speaking 101" again.
+2. Opens last semester's activity, clicks **Clone**. New Draft created: title "Public Speaking 101 (Copy)", 4 sessions with blank dates, same eligibility/capacity/budget plan/surveys/attachments.
+3. Coordinator edits: removes "(Copy)" from title, sets new dates, adjusts budget, updates poster attachment.
+4. Submits → standard approval flow runs.
+
+### Scenario O — Anonymous survey integrity
+
+1. A Coordinator suspects a specific harsh comment came from a particular student and asks Manager to identify the source.
+2. Manager checks the system: SurveyResponse table has no student_id; only SurveyDispatch shows that student submitted, not what they said. The system architecturally cannot answer the request.
+3. Manager explains anonymity guarantee to the Coordinator. The audit log captures Manager's lookup attempts (which return nothing identifying).
+
 ---
 
-## 15. Business rules registry
+## 16. Business rules registry
 
 A consolidated list to make gaps obvious. Each rule has an ID for reference.
 
@@ -611,13 +787,25 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-AT2**: Late counts as Present by default (configurable).
 - **BR-AT3**: Course completion = `present_sessions / total_sessions ≥ completion_threshold`.
 - **BR-AT4**: Single-session activity completion = present at the session.
-- **BR-AT5**: Optional deliverable requirement gates Completion regardless of attendance.
+- **BR-AT5**: ~~Optional deliverable requirement gates Completion regardless of attendance.~~ *(Deferred: deliverables not in v1.)*
 - **BR-AT6**: Attendance can be edited within X days post-session by staff; thereafter only Manager.
 
 ### Certificates
-- **BR-C1**: Certificates are auto-issued on Completion.
+- **BR-C1**: Certificates are auto-generated when a registration reaches Completed (which only happens after manual closure of the activity).
 - **BR-C2**: Each certificate has a unique verification code with public verify URL.
 - **BR-C3**: Revocation requires a reason and is shown on verify URL.
+- **BR-C4**: Certificate download is gated on the student submitting the standard post-activity survey. Manager/Coordinator can override per-student. Auto-release after 30 days post-closure.
+
+### Post-event (closure, surveys, gallery, follow-ups, clone)
+- **BR-PE1**: Activities transition to Completed only via manual close by Coordinator (own) or Manager. No auto-close on `end_at`.
+- **BR-PE2**: A Completed activity can be reopened by Coordinator (own) or Manager with reason; state returns to InProgress. Existing certificates are not retracted automatically.
+- **BR-PE3**: Every activity has an auto-attached standard survey (overall rating, facilitator rating, would-recommend, open comment). Coordinator may add custom questions but cannot remove standard ones.
+- **BR-PE4**: Survey responses are anonymous to all staff. Schema must not link a response to a student. Dispatch tracking (sent/submitted) is separate from response content.
+- **BR-PE5**: Surveys dispatch on closure (not on `end_at`). Reminders at +3 and +7 days. No hard close on the survey window.
+- **BR-PE6**: Media gallery: only Coordinator/Employee/Manager can upload or delete; visible to all logged-in students; per-photo "internal only" flag hides from students.
+- **BR-PE7**: Follow-up tasks have an owner, due date, and status. Reminders at -3d, -1d, day-of, and overdue. Open tasks may outlive activity closure.
+- **BR-PE8**: Activity cloning copies structure (type, sessions count, eligibility, capacity, budget plan, surveys, attachments) but blanks dates and resets registration/attendance/financial/audit data. Clone produces a Draft.
+- **BR-PE9**: Post-event report is optional; not required for closure or certificate issuance.
 
 ### Welfare
 - **BR-W1**: Welfare appointments are 1:1 only.
@@ -640,39 +828,39 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 
 ---
 
-## 16. Non-functional requirements
+## 17. Non-functional requirements
 
-### 16.1 Platforms & UX
+### 17.1 Platforms & UX
 - Responsive web + PWA (installable, offline cache for read-only views, web push).
 - Modern evergreen browsers + iOS Safari + Android Chrome.
 - Accessibility: WCAG 2.1 AA target.
 
-### 16.2 Performance
+### 17.2 Performance
 - p95 page load < 2.5s on 4G.
 - Catalog and roster lists handle 10k+ rows with pagination/virtualization.
 - Notifications dispatched within 30s of trigger.
 
-### 16.3 Security
+### 17.3 Security
 - Role-based access enforced server-side (never client-only).
 - Welfare data encrypted at rest.
 - All API calls authenticated; CSRF protection; input validation.
 - Audit log captures actor + IP for sensitive actions.
 - Files (attachments, receipts, certificates) stored with signed URLs (time-limited).
 
-### 16.4 Authentication
+### 17.4 Authentication
 - v1: local accounts (email + password, MFA optional).
 - Later phase: Microsoft SSO (OIDC). Designed to plug in without schema change.
 
-### 16.5 Reliability
+### 17.5 Reliability
 - Background jobs (state transitions, notifications) idempotent; retry with backoff.
 - Daily backups; PITR (point-in-time recovery) target 24h.
 
-### 16.6 Observability
+### 17.6 Observability
 - Structured app logs.
 - Error tracking (Sentry-like).
 - Basic metrics: registrations/day, certificates/day, notification delivery rate, error rate.
 
-### 16.7 Data scale assumptions (sizing)
+### 17.7 Data scale assumptions (sizing)
 - Students: ~30k.
 - Activities/year: ~500–2000.
 - Registrations/year: ~50k–200k.
@@ -681,40 +869,56 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 
 ---
 
-## 17. Open questions & gaps
+## 18. Open questions & gaps
 
 These are decisions still pending or assumptions you should pressure-test.
 
-### 17.1 Gaps from explicit decisions
+### 18.1 Gaps from explicit decisions
 - **Health module dual-mode** (appointments + walk-ins): visibility scope of walk-in logs is currently "all health Employees + Manager". Is that correct, or should it be "only the staff who logged it + Manager" for stricter privacy? Affects BR-W3.
 - **Counseling student visibility**: students currently see only the fact of the appointment, not any summary. Should counselors be able to share an optional "summary for student"? This is common practice. Decide before build.
 - **Cancellation cutoff for students**: a default value (e.g. 24h) is assumed but never explicitly chosen. Should this be system-wide or per-activity?
 - **Waitlist confirmation window**: when promoted from waitlist, do students need to confirm within X hours, or is auto-acceptance the right default? §7.3 lists it as optional.
 - **Self check-in**: §8.1 mentions optional self check-in for low-stakes events. Include in v1 or strict QR + manual only?
 
-### 17.2 Decisions deferred
+### 18.2 Decisions deferred
 - **Data retention**: deferred. Need a policy before going live (PII deletion timeline for graduated students, audit log retention).
 - **Payment integration** for paid activities: not designed. Currently fee fields exist, marking as paid/refunded is manual. Decide if v1 needs a payment gateway or if all v1 activities are free-of-charge in practice.
 - **Microsoft SSO**: deferred to a later phase. Local auth in v1.
 
-### 17.3 Things not yet asked
+### 18.3 Things not yet asked
 - **Capacity per session vs. activity** for multi-session courses: is capacity course-wide (one capacity for all sessions) or per session (e.g. open Q&A with caps per night)?
 - **Group registration**: can a student register a group of friends, or is each registration individual? Default: individual.
 - **Registration approval**: is registration auto-confirmed, or does some activity type require Coordinator approval per registrant (e.g. for selective workshops)?
 - **Attendance threshold**: §5.3 defaults to 80% for courses. Confirm; allow per-activity override at creation.
 - **Late cancellation request flow**: §7.2 mentions an optional "Request to cancel" after the cutoff. Include or omit?
-- **Activity templates**: should Coordinators be able to clone past activities to save time? (Strong UX win — recommend yes.)
 - **Recurring activities**: weekly clubs that meet every week — model as a Course with weekly sessions or as a different structure? §10.4 implies club activities use the standard activity flow.
-- **Staff scheduling conflicts**: §13.5 doesn't currently warn when an Employee is assigned to two overlapping activities. Add?
+- **Staff scheduling conflicts**: §14.5 doesn't currently warn when an Employee is assigned to two overlapping activities. Add?
 - **Visitors / non-students**: any need for non-student attendees (faculty guests, external invitees)? Not currently modeled.
 - **Capacity for waitlist**: unlimited or capped (e.g. max 50 on waitlist per activity)?
 - **Public-facing pages**: is the activity catalog visible to non-logged-in users (university recruitment angle), or login-required?
 - **Certificate hours/credits**: do certificates carry CPD-style hours, and if so, is that auto-calculated from session durations or manually set?
 - **Multi-currency**: assumed single currency. Confirm.
-- **Notification quiet hours**: §13.1 mentions per-user quiet hours; confirm whether this is needed in v1.
+- **Notification quiet hours**: §14.1 mentions per-user quiet hours; confirm whether this is needed in v1.
 - **Custom report sharing**: should Manager be able to share saved reports with another Manager? (Single-Manager assumption — confirm if there's only one Manager or multiple.)
 
-### 17.4 Architectural assumptions to validate
+### 18.5 Gaps from post-event decisions (rounds 13–15)
+- **"Ready to close" age threshold**: how long can an activity sit past `end_at` in InProgress before the system nags? Soft nudge after 7 days? Hard escalation to Manager after 30 days? Currently undefined — risk: stale activities forever in limbo.
+- **Re-close after reopen — survey behavior**: if a reopened activity adds a brand-new attendee whose registration becomes Completed, does that student receive the survey only, or are previously-submitted surveys re-opened for editing? Default: only new attendees get a fresh dispatch; previous responses are immutable. Confirm.
+- **Survey edit window for students**: once submitted, can a student edit their answers? Default: no (immutable to preserve aggregate integrity). Confirm.
+- **Auto-release fallback (30 days)**: configurable globally or per-activity? Should Manager be able to disable auto-release for high-stakes activities?
+- **Anonymous comments and harassment**: anonymity guarantee means a malicious comment cannot be traced. Need a documented response policy (Manager moderation, comment hide-on-flag). Currently no hide/flag mechanism specified.
+- **Internal-only photos**: the per-photo "internal only" flag is granular. Is bulk-mark-internal needed? Confirm UX.
+- **Follow-up task ownership transfer**: can a task owner reassign? Default: yes (logged). Confirm.
+- **Follow-up task SLAs / escalation**: if a task is overdue by N days, escalate to Manager? Currently only notifications fire to the owner.
+- **Clone — what about co-coordinators and employee assignments**: should those carry over by default, or always start fresh? Default suggested: assignments do NOT carry; Coordinator (cloner) becomes owner; co-coordinators/employees re-assigned manually. Confirm.
+- **Survey question library**: is there a shared library of reusable custom questions Coordinators can pick from, or does each Coordinator build from scratch each time? Recommended: a Manager-managed library.
+- **Survey export**: can Manager export raw (anonymous) responses to CSV for external analysis? Likely yes; confirm and ensure export does not include any dispatch-side identifying data.
+- **Closing partial completions**: what happens when Coordinator closes an activity with attendance still missing for some sessions? System currently warns (pre-close checklist) but doesn't block. Confirm this is intentional.
+- **Reopen audit visibility to students**: should students be told "this activity was reopened — your records may have been updated"? Currently only staff are notified. Decide.
+- **Survey impact on activities without certificates**: a Campaign-type activity with no certs — is the standard survey still mandatory? Currently yes (auto-attached). Confirm Coordinator can opt out for awareness campaigns.
+- **Media gallery storage costs**: at scale (hundreds of activities × dozens of photos), storage and CDN costs add up. Need a quota/policy decision before launch.
+
+### 18.4 Architectural assumptions to validate
 - Single Manager, multiple Coordinators/Employees — or multiple Managers? RBAC model assumes role is a string per user; if there are multiple Managers, current design holds. If "Manager" needs sub-departments (e.g. one Manager per faculty), we need multi-tenancy.
 - One department / one institution per deployment. Multi-tenant deferred.
 - All times in a single time zone (Asia/Riyadh assumed). Confirm.
@@ -722,7 +926,7 @@ These are decisions still pending or assumptions you should pressure-test.
 
 ---
 
-## 18. High-level implementation phases
+## 19. High-level implementation phases
 
 Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
@@ -736,13 +940,23 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 - Publish, registration window, capacity, waitlist, cancellation.
 - Conflict detection (block).
 - Attendance (QR + manual).
-- Completion logic, certificates with public verify.
-- Coordinator + Manager + Employee + Student dashboards (pre-built).
+- Completion logic.
+- **Manual closure flow** (Coordinator clicks Close → completion calc → certificate generation).
+- Certificates with public verify.
+- **Standard surveys** (auto-attached, anonymous, dispatched on closure, +3d/+7d reminders).
+- **Survey-gated certificate download** + 30-day auto-release fallback.
+- **Reopen activity** with reason.
+- **Activity cloning** (Draft from past activity).
+- Coordinator + Manager + Employee + Student dashboards (pre-built), including "Ready to close" badge.
 - CSV/PDF export of rosters and attendance.
 
-### Phase 2 — Clubs & budget
+### Phase 2 — Clubs, budget, post-event extras
 - Clubs, memberships, committees, club-sponsored activities.
 - Activity budgets: planned/approved/actual, transactions, alerts, change requests.
+- **Media gallery** (per-activity, with internal-only flag, archive view for students).
+- **Follow-up tasks** (CRUD, dashboard, due-date reminders, "all open follow-ups" view for Manager).
+- **Custom survey questions** (Coordinator adds beyond standard) + survey result viewing/export.
+- **Optional post-event report** template.
 - Custom report builder.
 - Scheduled reports.
 
@@ -765,7 +979,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
 ---
 
-## 19. Out of scope for v1
+## 20. Out of scope for v1
 - Native mobile apps.
 - Multi-language UI (Arabic).
 - Multi-tenant / multi-department deployment.
@@ -775,7 +989,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
 ---
 
-## 20. Decisions log (captured during requirements)
+## 21. Decisions log (captured during requirements)
 
 | # | Decision | Source |
 |---|----------|--------|
@@ -799,8 +1013,19 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 18 | Notifications: in-app + email + push | round 11 |
 | 19 | Tech stack: tech-agnostic plan | round 12 |
 | 20 | Scope: full PRD now, phased build | round 12 |
+| 21 | Closure: manual close only (Coordinator clicks "Close activity"); no auto-close on `end_at` | round 13 |
+| 22 | Post-closure edits: reopen allowed by Coordinator/Manager with reason; certificates remain valid | round 13 |
+| 23 | Coordinator post-event report: optional (template available) | round 13 |
+| 24 | Surveys: standard auto-attached for every activity + optional Coordinator customization | round 14 |
+| 25 | Survey timing: dispatched on closure with reminders; gates certificate download where certificates apply | round 14 |
+| 26 | Survey anonymity: anonymous to all staff (schema-enforced) | round 14 |
+| 27 | Certificate timing: generated and unlocked at manual closure (gated by survey if applicable) | round 14 |
+| 28 | Student deliverables: not in v1 | round 15 |
+| 29 | Media gallery: photos visible to all logged-in students (per-photo internal-only flag) | round 15 |
+| 30 | Follow-up tasks: structured tasks with owner, due date, status, reminders | round 15 |
+| 31 | Activity cloning: yes, clone-only (no separate lessons-learned database) | round 15 |
 
 ---
 
-*End of PRD. Review §17 (Open questions & gaps) carefully — those are the items most likely to bite you in build.*
+*End of PRD. Review §18 (Open questions & gaps) carefully — those are the items most likely to bite you in build. The new §18.5 covers gaps surfaced by post-event decisions.*
 
