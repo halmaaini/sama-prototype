@@ -124,7 +124,8 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
   - Fields: user_id, department_id, role (Manager / Coordinator / Employee), status (active/inactive), assigned_at, assigned_by.
   - A user **may have different roles in different departments** (e.g. Manager of Alumni AND Coordinator of Student Activities). For v1 with one department, this collapses to one role per user.
 - **Students** are tenant-scoped, not department-scoped. A student can register for any activity in any department within their tenant (subject to that activity's eligibility rules).
-- **TenantAdmin** (future role, post-v1): creates/configures departments, manages cross-department settings. Out of scope for v1; for v1, the system provisions one tenant + one department at install.
+- **TenantAdmin** (future role, post-v1): creates/configures departments, manages cross-department settings, and toggles `modules_enabled` per department. Out of scope for v1.
+- **Module enablement in v1**: configured at install time only (via configuration files / DB seed). All modules are enabled for the single department by default. There is no Manager-level UI to toggle modules in v1; that capability is reserved for the future TenantAdmin role.
 
 ### 4.1 User & identity
 - **User**: id, tenant_id, full_name, email, phone, status (active/inactive), created_at, last_login_at, avatar.
@@ -269,6 +270,15 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - **Deadline + late-cancellation request** — same as Deadline, but after the cutoff students can submit a "Request to cancel" that goes to Coordinator's queue (approve/reject).
   - Default per type: Event = Anytime, Course/Workshop = Deadline 24h, Campaign = Anytime.
 - **Registration approval** — Coordinator can flag the activity as `requires_approval` (default: false / FCFS auto-confirm). When true, registrations enter a **Pending** state and need Coordinator (or Manager) approval. Used for selective opportunities (e.g. "5 spots on a sponsored trip"; "selective workshop"). See §7.1.5 for the flow.
+  - **Application form** (when `requires_approval = true`): Coordinator builds a mini-form of 1–5 questions at activity creation. Each question has type {open_text, single_choice, multi_choice}, prompt, options[] (for choice types), required (bool). Students answer at registration time; answers are stored on the Registration and visible to Coordinator/Manager when reviewing the queue.
+  - **Reapply policy** (when `requires_approval = true`): Coordinator picks one at creation:
+    - `unlimited` (rejected student can reapply as long as registration window is open).
+    - `one_retry` (student gets one second chance after a rejection).
+    - `final` (rejection blocks any further application for this activity).
+- **Per-session sign-up flow** (when `per_session_signup_enabled = true`): Coordinator picks at creation:
+  - `register_first` (default) — student must be Registered for the activity before they can sign up for sessions.
+  - `signup_first` — sign-up to a session implies (and creates) the activity registration.
+  - See §7.4 for behavior details.
 
 ### 6.2 Approval flow
 - Coordinator submits → activity enters **Submitted**.
@@ -316,14 +326,19 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 ### 7.1.5 Registration approval (`requires_approval` activities)
 
 - Used for selective opportunities (e.g. 5 spots on a sponsored trip, selective workshops, scholarship-style applications).
-- On register: registration enters **Pending**. Notifications: student sees "Application submitted; awaiting decision"; Coordinator gets in-app + email "New application for [activity]".
-- **Capacity behavior**: Pending registrations do NOT consume capacity. The system holds the seat until decision. (Multiple Pending registrations can exceed capacity; Coordinator picks within the limit.)
+- **On register**: registration enters **Pending**. The student fills out the activity's application form (§6.1, 1–5 Coordinator-defined questions) as part of registration; answers stored on `Registration.application_answers`. Notifications: student sees "Application submitted; awaiting decision"; Coordinator gets in-app + email "New application for [activity]".
+- **Capacity behavior**: Pending registrations do NOT consume capacity. Multiple Pending registrations can exceed capacity; Coordinator picks within the limit.
+- **Queue ceiling**: no cap. Coordinator manages however large the queue grows. Pagination + filters (by application date, eligibility match, prior-rejection flag) help triage.
 - Coordinator (own) or Manager opens the **Application queue** for the activity, reviews each pending entry, and clicks **Approve** or **Reject (with reason)**:
-  - **Approve** → registration → **Registered**; notification to student. If approving would exceed capacity, system warns; Coordinator can override (counts as manual capacity raise).
-  - **Reject** → registration → **Rejected** with reason; notification to student. Student can re-apply if registration window still open (configurable; default: yes, but Coordinator sees re-application history).
-- **Auto-decision deadline**: Coordinator can set an "auto-reject after X days unprocessed" optional setting; default off.
-- **Optional reason field on application**: Coordinator can require a short application text from the student at register time (e.g. "Why do you want to attend this trip?"). Stored on Registration.application_text.
-- **Bulk actions**: Coordinator can approve multiple pending applications at once (audit-logged in batch).
+  - **Approve** → registration → **Registered**; notification to student. If approving would exceed capacity, system warns; Coordinator can override (counts as manual capacity raise — audit-logged).
+  - **Reject** → registration → **Rejected** with reason; notification to student.
+- **Reapply behavior** (per activity's `reapply_policy`, set at creation):
+  - `unlimited`: rejected student can submit a new application as long as the registration window is open. Each new application is a new Registration row (preserving full history of past rejections, visible to Coordinator).
+  - `one_retry`: a single second application is allowed after a first rejection. After a second rejection, blocked.
+  - `final`: rejection is final; the student is blocked from any further application for that activity.
+  - Coordinator and Manager can see the full rejection history (count + reasons) on each application during review.
+- **Auto-decision deadline**: Coordinator can set an optional "auto-reject after X days unprocessed" setting; default off. (Distinct from the no-cap queue policy: Coordinator may want to clear stale applications.)
+- **Bulk actions**: Coordinator can approve / reject multiple pending applications at once with a shared reason (audit-logged in batch).
 
 ### 7.2 Cancellation by student
 
@@ -331,9 +346,18 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - **No cancellation** → in-app cancel disabled. Student must contact Coordinator out-of-band; Coordinator can cancel on student's behalf with reason.
   - **Anytime until start** → cancel button enabled until `start_at`.
   - **Deadline before start (X hours)** → cancel button enabled until `start_at − X hours`. After cutoff, disabled.
-  - **Deadline + late-cancellation request** → after cutoff, button changes to "Request to cancel"; student supplies reason; goes to Coordinator's queue. Coordinator approves/rejects.
+  - **Deadline + late-cancellation request** → after cutoff, button changes to "Request to cancel"; student supplies reason; goes to Coordinator's queue.
 - On cancellation: registration → Cancelled; if a Registered student cancels and a waitlist exists, top of waitlist auto-promotes (see §7.3).
 - Cancelled registrations remain in the audit trail; soft-deleted only if Manager explicitly deletes.
+
+**Late-cancellation requests — handling and indefinite queue:**
+
+- Coordinator (own) or Manager reviews the late-cancellation queue. Approve → registration → Cancelled (waitlist auto-promotion follows §7.3); Reject → student stays Registered.
+- **Unprocessed past `start_at`**: requests **remain in the queue indefinitely**. They do not auto-resolve. Coordinator can decide retroactively — even after the event has happened:
+  - If approved post-event, the registration moves to Cancelled. Note: this can supersede a NoShow that the system already auto-set; the audit log captures both transitions and the human decision.
+  - This intentional design lets Coordinators be lenient about genuine emergencies (illness, family issues) brought up after the fact, while still penalizing pure no-shows.
+- **Notification**: student is notified on decision regardless of how long it took. Coordinator dashboard surfaces overdue requests (>7 days unprocessed) as a soft nag.
+- **Reporting**: late-request approval rate per Coordinator is a Manager-visible metric (signal for fairness consistency).
 
 ### 7.3 Waitlist mechanics
 - FIFO ordered queue. Position visible to student.
@@ -351,12 +375,27 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 
 1. **Activity-wide capacity** (`Activity.capacity`) — the master roster size. Always set. A student with status Registered occupies one seat in this roster, regardless of which sessions they attend. This is the "team" size.
 2. **Per-session sign-up** (optional, `per_session_signup_enabled`) — students indicate intent to attend specific sessions. Helps the Coordinator plan logistics (catering, materials, room setup). Sign-ups are non-binding: a student who didn't sign up can still attend; one who did can still be a no-show.
-3. **Per-session capacity** (optional, `per_session_capacity_enabled`) — each session has its own cap (e.g. football team is 30, but only 20 jerseys for training). Enforced when sign-up is enabled: if a session is full, sign-up is blocked with a "session full" message; student can sign up for another session.
+3. **Per-session capacity** (optional, `per_session_capacity_enabled`) — each session has its own cap (e.g. football team is 30, but only 20 jerseys for training). Enforced at sign-up: if a session is full, sign-up is blocked with a "session full" message; student can sign up for another session. **Walk-in attendance is allowed past capacity** — see below.
 
-**Attendance behavior:**
-- Attendance (QR or manual mark) is taken per-session and is **independent of sign-up**. A student attending without prior sign-up is recorded normally.
+**Sign-up flow** (per-activity, set at creation via `signup_flow`):
+
+- **`register_first`** (default) — student must be Registered for the activity (subject to eligibility, prerequisites, registration window) before they can sign up for any session. Sign-up is a separate step inside the activity page.
+- **`signup_first`** — student signs up directly for one or more sessions. The first sign-up creates an implicit Registration for the activity (subject to capacity/approval rules). Useful for drop-in lecture series where the "team" concept is loose.
+
+**Per-session sign-up window:**
+- Coordinator can set per-session `signup_opens_at` and `signup_closes_at` per session.
+- Sign-up windows can be narrower than the activity's registration window (e.g. register at semester start, sign up for each lecture 24h before).
+
+**Per-session sign-up cancellation:**
+- Student can un-sign-up from a session anytime up to that session's `start_at`. Frees the seat in per-session capacity, allowing waitlist promotion at the session level (if implemented — see §18.3 gap).
+- Un-sign-up does NOT cancel the activity registration.
+
+**Attendance behavior — walk-ins allowed past capacity:**
+- Attendance (QR or manual mark) is taken per-session and is **independent of sign-up**.
+- **Walk-ins are allowed even when a session is at or above its per-session capacity.** Per-session capacity governs sign-ups (planning/preparation), not physical attendance.
+- When a walk-in pushes attendance above per-session capacity, the system shows the Employee a non-blocking warning ("Session capacity exceeded by N walk-ins"), records the attendance normally, and surfaces the count to the Coordinator dashboard.
 - A student who signed up but didn't attend is marked Absent (counts toward no-show metrics if applicable).
-- For Coordinator visibility: each session shows three counts — `signed_up`, `attended`, `walked_in_without_signup`.
+- For Coordinator visibility: each session shows four counts — `signed_up`, `attended_signed_up`, `walked_in_without_signup`, `signed_up_no_show`.
 
 **Completion calculation (unchanged):**
 - For courses: completion = `attended_sessions / total_sessions ≥ completion_threshold`.
@@ -400,7 +439,11 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - SAMA exposes registration ID + reference number to finance.
 - Finance pushes (or SAMA polls) payment events back: `{reference_number, amount, status, paid_at, transaction_id}`.
 - SAMA maps the event to the registration → updates `fee_status` ∈ {pending, paid, refunded, partial_refund} and `paid_amount`.
-- Integration mechanism (webhook vs. scheduled poll vs. message bus) — defined in a separate **Finance Integration Spec** (TBD; see §18 gaps).
+- **Integration mechanism (webhook / poll / message bus / file drop) is deferred to a separate Finance Integration Spec.** SAMA is built with a **pluggable finance adapter** so the chosen mechanism can be swapped without touching application logic. The adapter's contract is:
+  - `record_pending(registration_id) → reference_number` (called when a paid registration is created).
+  - `apply_event(payload) → registration_id` (called when SAMA receives a finance event in any form).
+  - `emit_cancellation(registration_id, reason)` (called on activity or registration cancellation).
+- Default adapter for v1 development: stub adapter with manual UI for Manager/Coordinator to mark "paid" for testing.
 
 **Effect on registration state:**
 - Default behavior: registration becomes **Registered** immediately on submission (subject to capacity/approval rules) regardless of payment status. `fee_status = pending` is shown next to the registration.
@@ -740,12 +783,14 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 
 ### 14.9 Data retention
 - **Keep everything.** All records (activities, registrations, attendance, certificates, surveys, follow-ups, media, welfare notes, audit log) are retained indefinitely for historical reporting.
-- **Soft delete only.** When a Manager (or system) "deletes" a record, the row is marked with `deleted_at` (and `deleted_by`, `deletion_reason`). It disappears from default views but remains queryable for audit, reports, and undelete.
+- **Soft delete only (in-app).** When a Manager (or system) "deletes" a record, the row is marked with `deleted_at` (and `deleted_by`, `deletion_reason`). It disappears from default views but remains queryable for audit, reports, and undelete.
   - Every entity that supports deletion has a `deleted_at` column.
   - Default queries filter out soft-deleted records.
   - Soft-deleted records are excluded from student-facing views immediately.
-  - Soft-deleted records remain in Manager-only deleted-items view, with restore action.
-- **Hard delete**: not exposed in the UI. Reserved for legal compliance (e.g. PDPL right-to-erasure requests) and executed by infrastructure/DBA, never by application users. Hard deletion is logged outside the application audit log.
+  - **Manager has a "Deleted items" view that includes ALL deletable entities** — activities, clubs, registrations, attendance, transactions, follow-ups, media, **and welfare records** (counseling notes, health appointments, visit logs). Restore action is available on every row.
+  - Restore reverses the soft delete and is itself audit-logged.
+  - Deleting a welfare record from the deleted-items view does NOT hard-delete; it just stays soft-deleted (no further state to move to in v1).
+- **Hard delete is out of scope for v1.** PDPL right-to-erasure or any other legal-compliance hard-deletion is handled out-of-band (legal request → IT → DBA), not through the application. To be revisited post-v1 with a documented runbook.
 - **Audit log**: append-only at the application layer (no soft-delete on AuditEvent — those rows never disappear).
 - **Reporting**: reports include or exclude soft-deleted records based on a toggle; default excludes.
 
@@ -873,6 +918,39 @@ These scenarios trace real interactions across modules to expose gaps.
 3. Coordinator edits: removes "(Copy)" from title, sets new dates, adjusts budget, updates poster attachment.
 4. Submits → standard approval flow runs.
 
+### Scenario P — Selective trip with approval and reapply
+
+1. Coordinator creates "Cultural exchange trip" — `requires_approval = true`, `reapply_policy = one_retry`, application form: 3 questions (open text "why?", single choice "year", multi-choice "languages").
+2. 40 students apply for 5 spots; each fills the form. Registration state = Pending; capacity (5) is not yet consumed.
+3. Coordinator opens application queue, filters by year + language, picks 5 to approve. The other 35 are rejected with reasons ("limited spots; thanks for applying").
+4. One rejected student reapplies (their `one_retry` second chance) with a stronger answer. Coordinator approves; system warns "approving exceeds capacity" — Coordinator confirms (manual capacity raise from 5 → 6, audit-logged).
+5. Another rejected student tries to reapply a third time. System blocks: "your application has been finalized for this activity."
+
+### Scenario Q — Late cancellation decided post-event
+
+1. Activity with cancellation policy = "deadline 24h + late-cancellation request". Cutoff is yesterday at 14:00; activity is today at 14:00.
+2. At 11:00 today, a student submits "Request to cancel" with reason "I have a fever" — request enters Coordinator's queue.
+3. Coordinator is in meetings all day; activity happens at 14:00. Student is absent; system auto-marks them NoShow at 16:00 (when activity ends).
+4. Two days later, Coordinator reviews the queue (overdue badge visible), reads the reason, decides to approve the late cancellation.
+5. System: registration → Cancelled (was NoShow), audit log captures both transitions and the human override. The "high no-show students" report no longer counts this student for that activity.
+
+### Scenario R — Football team with hybrid capacity
+
+1. Coordinator creates "Football team" as a Course — capacity 30, multi-session (weekly trainings + matches), `per_session_signup_enabled = true`, `per_session_capacity_enabled = true`, `signup_flow = register_first`.
+2. 30 students register; team is the "squad of 30".
+3. For Tuesday training, Coordinator sets per-session capacity = 20 (jerseys/equipment limit). 20 students sign up; sign-up form blocks the 21st with "session full — try Thursday training".
+4. Tuesday: 18 of the 20 signed-up students show. 2 walked in without signing up (one came back from injury). Employee marks all 20 Present; system shows "session capacity exceeded by 0" warning (still within capacity since 18 + 2 = 20). All attendances recorded.
+5. Thursday: 25 students sign up; per-session capacity is enforced — only first 20 can sign up. On the day, 22 attend (some Tuesday-only people decided to come). System: 20 from sign-up + 2 walk-ins → "session capacity exceeded by 2" warning, attendance recorded for all 22.
+6. End of semester: Coordinator closes activity; completion calc uses `attended_sessions / total_sessions ≥ threshold`.
+
+### Scenario S — Soft-delete and restore including welfare
+
+1. A counselor accidentally creates a CounselingNote for the wrong student. Notices it, requests deletion via Manager.
+2. Manager opens the note, soft-deletes with reason "wrong student — duplicate of correct entry". Note disappears from default views.
+3. Two days later, a colleague says "wait, the original was actually right; the duplicate should have stayed". Manager opens "Deleted items" → "Welfare records" → finds the note → clicks Restore.
+4. Note returns to normal state. Audit log shows: created → soft-deleted → restored, all with timestamps and actors.
+5. (Hard delete is not available in v1 — if there were a legal need to permanently erase the data, Manager would file a request to IT for an out-of-band DBA operation.)
+
 ### Scenario O — Anonymous survey integrity
 
 1. A Coordinator suspects a specific harsh comment came from a particular student and asks Manager to identify the source.
@@ -960,13 +1038,24 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 ### Cancellation, approval, capacity, finance, retention
 - **BR-CX1**: Each activity declares a cancellation policy at creation (no-cancel / anytime / deadline / deadline-with-late-request). Default depends on type.
 - **BR-CX2**: Activities with `requires_approval = true` route registrations to a Pending state; capacity is not consumed until Coordinator/Manager approves.
-- **BR-CX3**: Pending registrations are not subject to FCFS guarantees; Coordinator selects from the queue.
-- **BR-CX4**: Activity capacity is course-wide ("the team"). Per-session sign-up and per-session capacity are optional layers; attendance is decoupled from sign-up.
-- **BR-CX5**: A student can attend a session without prior sign-up; their attendance record is normal.
-- **BR-FIN1**: SAMA does not process payments. Payment status is sourced read-only from the university finance system via integration. SAMA never stores card data.
+- **BR-CX3**: Pending registrations are not subject to FCFS guarantees; Coordinator selects from the queue. Application queue has no system cap.
+- **BR-CX4**: `requires_approval` activities have a Coordinator-defined application form (1–5 questions). Student answers stored on Registration; Coordinator/Manager see them in the queue.
+- **BR-CX5**: Reapply policy on rejection is per-activity: `unlimited` / `one_retry` / `final`.
+- **BR-CX6**: Late-cancellation requests (when policy = deadline + late-request) **remain in queue indefinitely**. Coordinator can decide retroactively, even after `start_at`. Approval post-event supersedes any system-set NoShow.
+- **BR-CX7**: Activity capacity is course-wide ("the team"). Per-session sign-up and per-session capacity are optional layers; attendance is decoupled from sign-up.
+- **BR-CX8**: A student can attend a session without prior sign-up; their attendance record is normal.
+- **BR-CX9**: Per-session capacity governs sign-ups, not physical attendance. Walk-ins are admitted past capacity with a non-blocking warning.
+- **BR-CX10**: Sign-up flow is per-activity: `register_first` (default) requires activity registration before per-session sign-up; `signup_first` lets sign-up create the registration.
+- **BR-CX11**: Per-session sign-up can be cancelled by the student up to that session's `start_at`. Activity registration remains intact.
+- **BR-FIN1**: SAMA does not process payments. Payment status is sourced read-only from the university finance system via a pluggable adapter. SAMA never stores card data.
 - **BR-FIN2**: Refund decisions live in the finance system; SAMA emits cancellation events and reflects status updates.
-- **BR-RET1**: All records are retained indefinitely. UI deletions are soft deletes (`deleted_at`); hard deletes are infrastructure-level and excluded from normal flows.
+- **BR-FIN3**: Finance integration mechanism (webhook / poll / bus / file drop) is implementation-time deferred to a separate Finance Integration Spec.
+- **BR-RET1**: All records are retained indefinitely. UI deletions are soft deletes (`deleted_at`).
 - **BR-RET2**: Audit log is append-only; soft-delete does not apply.
+- **BR-RET3**: Manager has a "Deleted items" view covering all deletable entities (including welfare records). Restore action is always available; reverses soft-delete; audit-logged.
+- **BR-RET4**: Hard delete is out of scope for v1 — handled out-of-band when legally required.
+- **BR-T6**: Module enablement in v1 is install-time only. No in-app UI; reserved for future TenantAdmin.
+- **BR-T7**: Cross-department student data: when a student of any department registers for an activity in another department, the receiving Coordinator sees the student's full profile (no minimum-necessary masking in v1).
 
 ---
 
@@ -1033,24 +1122,15 @@ These are decisions still pending or assumptions you should pressure-test.
 - **Multi-currency**: confirm single currency for v1; tenant settings (§4.0) supports per-tenant currency for future SaaS.
 - **Notification quiet hours**: §14.1 mentions per-user quiet hours; confirm whether this is needed in v1.
 
-### 18.3 New gaps from round 16 (resolved-but-with-sub-questions)
-- **Cancellation policy types** (§6.1): the four options (no-cancel / anytime / deadline / deadline + late-request) cover most cases. Is "anytime until X hours after start" needed (e.g. drop-out within first 30 minutes)? Probably not, but confirm.
-- **Late-cancellation requests**: when a student submits a "Request to cancel" after the cutoff (§7.2), what's the default Coordinator response window? If unprocessed by start_at, what happens — auto-approve, auto-reject, or remain in queue?
-- **Approval queue capacity behavior** (§7.1.5): currently "Pending registrations don't consume capacity". This means a Coordinator could have 50 pending applications for 5 spots — is there a ceiling on pending applications? Should excess applications be auto-rejected ("Already at maximum applications, please try again later")?
-- **Approval re-application** (§7.1.5): after rejection, can a student reapply? Currently default yes; confirm and set policy.
-- **Application text requirement** (§7.1.5): when does Coordinator know to require a "why?" text? Is this a per-activity flag at creation?
-- **Per-session sign-up window vs. registration window** (§7.4): can a student sign up for sessions before they're even Registered for the activity? Default: must be Registered first; per-session sign-up window is a sub-window. Confirm.
-- **Per-session sign-up cancellation** (§7.4): if a student signs up for a session and then doesn't want to come, can they un-sign-up? Default: yes, anytime up to session start. Confirm.
-- **Walk-in attendance vs. capacity** (§7.4): if a session has per-session capacity 20 and 20 are signed up, can a walk-in still be marked Present? Answer must be yes (capacity is for sign-up only, not physical attendance), but Coordinator should see "exceeded session capacity" warning.
-- **Finance integration spec** (§7.8): the integration mechanism (webhook / poll / message bus) is not yet defined. Need a separate Finance Integration Spec document covering: payload schemas, retry/idempotency, security (mTLS / signed payloads / API key), failure handling.
-- **Finance reference number format** (§7.8): how should SAMA generate reference numbers? Format constraints from finance side?
-- **Payment-required-to-attend behavior** (§7.8): if Coordinator enables this and the student arrives unpaid, the Employee can override at check-in. Should there be a distinct "checked in but unpaid" status, or just a flag on the attendance record?
-- **TenantAdmin role** (§4.0): for v1 single-tenant, provisioning is install-time. Post-v1 multi-tenant SaaS will need a TenantAdmin role and onboarding flow. Out of scope for v1 PRD; flag for the v2 architecture document.
-- **Module enablement UX** (§4.0): how does a department turn a module on/off? Manager-level UI, or only TenantAdmin? Probably TenantAdmin (post-v1). For v1, configured at install.
-- **Cross-department reporting**: a tenant-wide report (e.g. "all activities across Student Activities + Alumni") needs a TenantAdmin role to view. Out of scope for v1.
-- **Soft-delete UX**: which entities expose a "Deleted items" view to Manager? Activities and Clubs likely yes. Welfare records — probably not (sensitive). Confirm.
-- **Hard-delete process for legal compliance**: PDPL right-to-erasure may demand hard delete of a student's PII. Need a documented runbook (DBA-only operation, with audit trail logged outside the application).
-- **Cross-department student mobility**: a student of College A registers for an Alumni event. Eligibility rules — does the Alumni Coordinator see the College A student's full profile or only the eligibility-relevant fields? Default: minimum-necessary; confirm.
+### 18.3 Remaining sub-questions (after rounds 17–19)
+
+Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
+
+- **Finance reference number format** (§7.8): how should SAMA generate reference numbers? Format constraints come from the finance side and belong in the Finance Integration Spec.
+- **Auto-decision deadline default** (§7.1.5): the optional "auto-reject after X days unprocessed" setting needs a recommended default (e.g. 14 days?). Confirm.
+- **Anytime-until-after-start cancellation type**: the four cancellation policy options cover most cases. Is "anytime until X minutes after start" needed (e.g. allow drop-out within first 30 minutes)? Probably not, but worth one sentence in the policy chooser.
+- **Per-session waitlist**: when per-session capacity is enabled and a session is full, does the system maintain a per-session waitlist (auto-promotion if someone un-signs-up)? Currently §7.4 implies no per-session waitlist. Confirm or add.
+- **Cross-department reporting**: a tenant-wide report (e.g. "all activities across Student Activities + Alumni") needs a TenantAdmin role to view. Out of scope for v1, flagged for v2.
 
 ### 18.4 Gaps from post-event decisions (rounds 13–15)
 - **"Ready to close" age threshold**: how long can an activity sit past `end_at` in InProgress before the system nags? Soft nudge after 7 days? Hard escalation to Manager after 30 days? Currently undefined — risk: stale activities forever in limbo.
@@ -1191,8 +1271,20 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 38 | Single department / single tenant in v1; schema includes `tenant_id` + `department_id` to support future multi-department (Alumni, Colleges) and SaaS multi-tenancy | round 16 |
 | 39 | Survey responses are internal-only — never visible to other students; Coordinator can flag, Manager can delete with reason; anonymity preserved | round 16 |
 | 40 | Media quota: 500 MB per activity, 20 MB per photo, no video in v1; storage infrastructure is IT-managed | round 16 |
+| 41 | Late-cancellation requests remain in queue indefinitely; Coordinator can decide retroactively post-event (override system-set NoShow) | round 17 |
+| 42 | Reapply policy on rejection: per-activity choice (`unlimited` / `one_retry` / `final`) | round 17 |
+| 43 | Application queue: no cap; Coordinator manages | round 17 |
+| 44 | Application form: per-activity multi-question form (1–5 questions, types: text/single/multi-choice) | round 17 |
+| 45 | Per-session sign-up flow: per-activity choice (`register_first` default / `signup_first`) | round 18 |
+| 46 | Walk-in attendance allowed past per-session capacity with non-blocking warning | round 18 |
+| 47 | Finance integration mechanism deferred to a separate Finance Integration Spec; SAMA built with pluggable adapter | round 18 |
+| 48 | Payment-required-to-attend: per-activity flag with Employee override at check-in (current PRD default confirmed) | round 18 |
+| 49 | Soft-delete UX: "Deleted items" view covers all entities including welfare records (with restore) | round 19 |
+| 50 | Hard-delete: out of scope for v1 — handled out-of-band when legally required | round 19 |
+| 51 | Cross-department student profile visibility: full profile to receiving Coordinator (no minimum-necessary masking in v1) | round 19 |
+| 52 | Module enablement: install-time only in v1; no in-app UI; reserved for future TenantAdmin role | round 19 |
 
 ---
 
-*End of PRD. Review §18 (Open questions & gaps) — particularly §18.3 (sub-questions surfaced by round 16) and §18.4 (post-event sub-questions). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
+*End of PRD. Review §18 (Open questions & gaps) — particularly the remaining items in §18.2 (general open questions) and §18.4 (post-event sub-questions). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one. Rounds 17–19 closed most round-16 sub-questions; the remaining gaps are mostly UX defaults and welfare-module specifics that can be tightened in a final review.*
 
