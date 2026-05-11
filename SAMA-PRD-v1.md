@@ -8,7 +8,7 @@
 
 A web + PWA platform for a university Student Activities & Welfare department to plan, approve, deliver, and report on student-facing activities and welfare services. It replaces ad-hoc spreadsheets and chat-based coordination with a single source of truth covering:
 
-- Activity lifecycle (events, courses, workshops, campaigns) from idea to certificate
+- Activity lifecycle (events, programs, workshops, campaigns) from idea to certificate
 - Student registration, attendance, completion, and certification
 - Persistent clubs with rosters and committees
 - 1:1 welfare services (counseling appointments, health appointments + walk-in visit logs)
@@ -27,9 +27,9 @@ A web + PWA platform for a university Student Activities & Welfare department to
 
 | Term | Meaning |
 |------|---------|
-| **Activity** | Any planned offering students can register for: event, course, workshop, or campaign. |
+| **Activity** | Any planned offering students can register for: event, program, workshop, or campaign. |
 | **Event** | Single-session activity (lecture, ceremony, tournament round). |
-| **Course** | Multi-session activity with attendance threshold for completion (e.g. 80%). |
+| **Program** | Multi-session activity with attendance threshold for completion (e.g. 80%). |
 | **Workshop** | Hands-on session, single or multi-day, often with a deliverable. |
 | **Campaign** | Awareness/outreach activity (health drive, blood donation, awareness week). May or may not have registration. |
 | **Club** | Persistent student-run group with a roster, committees, and activities. |
@@ -128,16 +128,22 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 - **Module enablement in v1**: configured at install time only (via configuration files / DB seed). All modules are enabled for the single department by default. There is no Manager-level UI to toggle modules in v1; that capability is reserved for the future TenantAdmin role.
 
 ### 4.1 User & identity
-- **User**: id, tenant_id, full_name, email, phone, status (active/inactive), created_at, last_login_at, avatar.
-  - For students: student_id, program, year, gender, eligibility_attributes (JSON for flexible filters). Students have NO entries in DepartmentRole — they are tenant-scoped consumers.
-  - For staff (Manager/Coordinator/Employee): one or more entries in DepartmentRole.
-  - Auth: local password (v1) or Microsoft SSO (later phase).
+- **User**: id, tenant_id, kind {student, staff, guest}, full_name, email, phone, status (active/inactive), created_at, last_login_at, photo_url, photo_source {feed, student_upload, none}, photo_moderation_status {approved, pending, rejected}.
+  - For students (`kind = student`): student_id, program, year, gender, eligibility_attributes (JSON for flexible filters). Students have NO entries in DepartmentRole — they are tenant-scoped consumers.
+  - For staff (`kind = staff`, Manager/Coordinator/Employee): one or more entries in DepartmentRole.
+  - For guests (`kind = guest`): guest_type {faculty, external, parent, other}. No DepartmentRole, no student_id, no password. See §7.1.6 for the guest registration flow. Email-verified; access is via magic-link only (no main-UI login).
+  - Auth: local password (v1, students/staff only) or Microsoft SSO (later phase). Guests have no password.
+- **Profile photo handling**:
+  - Default source is the university photo feed (delivered by IT at provisioning and on a periodic refresh). When the feed has a photo, `photo_source = feed` and `photo_moderation_status = approved` automatically.
+  - Student can upload an override via their profile page (crop tool). Uploaded photo enters `pending` moderation; only Manager (or a delegated Coordinator) can approve. Approved upload → `photo_source = student_upload`. Rejected → falls back to the feed photo.
+  - At any time the student can revert to the feed photo with one click.
+  - Photo is displayed on Employee check-in screen (visual verification next to the QR scan), on the student's own profile, and on the staff-facing student view. It is NOT shown in public catalog (§6.1) or to other students.
 - **Role**: per-department; see DepartmentRole above. Internal lookup also exposes a derived "primary role" for display (the highest role across departments).
 - **Assignment**: user ↔ activity (as coordinator or employee), user ↔ club (as coordinator/advisor or member), user ↔ welfare_service (as counselor / health staff). Assignments are department-scoped (the activity/club/service lives in one department).
 
 ### 4.2 Activity & sessions
-- **Activity**: id, tenant_id, department_id, type {Event, Course, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for course), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), state (see §5), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete).
-- **Session** (for multi-session courses/workshops): id, activity_id, sequence, start_at, end_at, location, employee_in_charge_id, capacity (nullable; per-session cap if `per_session_capacity_enabled`).
+- **Activity**: id, tenant_id, department_id, type {Event, Program, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for program), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), self_checkin_enabled (bool, default false), is_public (bool, default false), cert_hours (decimal, default = sum of session durations; manually editable), state (see §5), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete), version (optimistic locking).
+- **Session** (for multi-session programs/workshops): id, activity_id, sequence, start_at, end_at, location, employee_in_charge_id, capacity (nullable; per-session cap if `per_session_capacity_enabled`).
 - **SessionSignup** (only when `per_session_signup_enabled`): id, session_id, registration_id, signed_up_at. Indicates intent to attend; does not gate attendance.
 - **EligibilityRule**: e.g. allowed_programs[], allowed_years[], allowed_genders[], custom_filters[]. Combined with AND.
 - **Prerequisite**: activity_id depends on prior_activity_id (must be Completed) — optional list.
@@ -203,7 +209,7 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 
 ## 5. Master activity lifecycle
 
-This is the single state machine all activities (Event, Course, Workshop, Campaign) flow through. Per-type variations are noted inline.
+This is the single state machine all activities (Event, Program, Workshop, Campaign) flow through. Per-type variations are noted inline.
 
 ### 5.1 States
 
@@ -242,8 +248,8 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 ### 5.3 Per-type behavior
 
 - **Event**: single session; attendance recorded once; certificate issued if `attended = true` and threshold met (default: present).
-- **Course**: multi-session; attendance per session; completion when `attended_sessions / total_sessions ≥ completion_threshold` (default 80%).
-- **Workshop**: single or multi-session; same as Event or Course depending on shape; may require deliverable submission before certificate (optional).
+- **Program**: multi-session; attendance per session; completion when `attended_sessions / total_sessions ≥ completion_threshold` (default 80%).
+- **Workshop**: single or multi-session; same as Event or Program depending on shape; may require deliverable submission before certificate (optional).
 - **Campaign**: may have no registration (open attendance) or registration for specific roles (volunteer slots). Attendance optional. Certificates optional.
 
 ### 5.4 System-driven state changes
@@ -257,7 +263,7 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 
 ### 6.1 Create & edit
 - Coordinator opens "New Activity", picks type, fills fields. Required: title, type, description, start/end, location, capacity, registration window, eligibility, completion threshold (auto-defaulted by type), cancellation policy.
-- Course/Workshop with multiple sessions: add sessions inline with their own date/time/location/employee. Optionally enable per-session sign-up and per-session capacity (see §7.4).
+- Program/Workshop with multiple sessions: add sessions inline with their own date/time/location/employee. Optionally enable per-session sign-up and per-session capacity (see §7.4).
 - Activity may be linked to a sponsoring **Club**.
 - Activity has a planned **Budget**: Coordinator inputs planned line items; total auto-summed.
 - Activity may carry **Prerequisites** (must have Completed activity X).
@@ -268,7 +274,7 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - **Anytime until start** — student can cancel any time up to `start_at`.
   - **Deadline before start** — Coordinator sets a number of hours before `start_at` (e.g. 24h, 72h, 7 days). After the deadline, in-app cancellation is disabled.
   - **Deadline + late-cancellation request** — same as Deadline, but after the cutoff students can submit a "Request to cancel" that goes to Coordinator's queue (approve/reject).
-  - Default per type: Event = Anytime, Course/Workshop = Deadline 24h, Campaign = Anytime.
+  - Default per type: Event = Anytime, Program/Workshop = Deadline 24h, Campaign = Anytime.
 - **Registration approval** — Coordinator can flag the activity as `requires_approval` (default: false / FCFS auto-confirm). When true, registrations enter a **Pending** state and need Coordinator (or Manager) approval. Used for selective opportunities (e.g. "5 spots on a sponsored trip"; "selective workshop"). See §7.1.5 for the flow.
   - **Application form** (when `requires_approval = true`): Coordinator builds a mini-form of 1–5 questions at activity creation. Each question has type {open_text, single_choice, multi_choice}, prompt, options[] (for choice types), required (bool). Students answer at registration time; answers are stored on the Registration and visible to Coordinator/Manager when reviewing the queue.
   - **Reapply policy** (when `requires_approval = true`): Coordinator picks one at creation:
@@ -281,6 +287,7 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - See §7.4 for behavior details.
 - **Self check-in toggle** (`self_checkin_enabled`, default false). When true, students can check themselves into a session by scanning a session-specific QR code (rotates each session, displayed by Employee on screen at the venue). Geofence-optional and time-window-enforced (only valid from session `start_at − 15min` to session `end_at`). Useful for large lectures (200+) where Employee scanning is a bottleneck. Default off — Employee scan is the safer default.
 - **Public catalog toggle** (`is_public`, default false). When true, the activity appears in a public (no-login) catalog view that shows: title, brief description, dates, current capacity status (Open / Waitlist / Full). It does **not** show: enrolled student names, photos, eligibility internals, application questions, welfare-adjacent details. Login is still required to register, view full details, or interact. Default off — opt-in per activity, because some activities (welfare-adjacent, scholarship trips, internal-only) should not be public.
+- **Guest registration toggle** (`allow_guest_registration`, default false). See §7.1.6 for the guest registration flow. When on, non-students (faculty speakers' attendees, parents at family events, external invitees) can register without a SAMA login. Coordinator decides per activity. Independent of `is_public` — an activity can be private to logged-in students AND allow guest registration via a direct link, or be publicly listed AND restricted to students only.
 
 ### 6.2 Approval flow
 - Coordinator submits → activity enters **Submitted**.
@@ -342,6 +349,47 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Auto-decision deadline**: Coordinator can set an optional "auto-reject after X days unprocessed" setting; default off. (Distinct from the no-cap queue policy: Coordinator may want to clear stale applications.)
 - **Bulk actions**: Coordinator can approve / reject multiple pending applications at once with a shared reason (audit-logged in batch).
 
+### 7.1.6 Guest registration (non-students, no login)
+
+When the activity's `allow_guest_registration = true`, non-students can register without a SAMA account.
+
+**Guest data model** — guests live in the `User` table with a separate flag, so existing code paths (roster, attendance, certificate issuance, cancellation, finance reference) work uniformly.
+
+- **Guest** is a `User` with `kind = guest` (vs. `student` / `staff`). Required fields at registration: `full_name`, `email`, `phone`, `guest_type {faculty, external, parent, other}`. No password, no department role, no `student_id`.
+- Guests are tenant-scoped (belong to a tenant), not department-scoped.
+- A guest record persists across activities — if the same email registers for a future activity, the existing record is reused (after email verification).
+
+**Flow**:
+1. Coordinator publishes the activity with `allow_guest_registration = true`. A **public guest-registration URL** is generated (signed, activity-scoped, optional expiry = activity `end_at`).
+2. Coordinator shares the URL externally (email blast, social post, printed QR). No login required to open it.
+3. Guest opens the URL → fills the registration form (name, email, phone, guest_type, plus any application questions if `requires_approval = true`). Email is verified via a magic link before the registration finalizes (prevents typosquatting and gives the guest a manage-registration URL).
+4. **Paid activities**: after email verification, guest is forwarded to the finance gateway (same external system as for students, §7.8). Finance sends back the reference number, which is attached to the registration. SAMA tracks `fee_status` as for students.
+5. **Approval-required activities**: guest registration sits as `Pending` until Coordinator/Manager decides — same approval queue, no special path. Approval / rejection emails sent to the guest.
+6. Once Registered, the guest receives a confirmation email containing:
+   - Activity details (date, time, location, joining link if virtual).
+   - A **check-in QR code** (printable + visible in the email) — same QR format Employees scan as for students.
+   - A **magic link to "Manage my registration"** — a tokenized URL that opens a guest portal (no password). From there the guest can: see their registration, cancel it (subject to the same `cancellation_policy`), view their certificate after the activity, see paid-status.
+
+**Capabilities a guest does NOT have**:
+- Cannot log into the main SAMA UI (no password, no role).
+- Cannot see other activities, the catalog, welfare, clubs, anything beyond their own registrations via the magic link.
+- Cannot receive welfare appointments (no profile in v1).
+- Does not appear in eligibility-rules matching (`allowed_programs`, etc. — those apply to students only).
+
+**Attendance & completion**: identical to students. Guest's session attendance is tracked, completion threshold applied, NoShow recorded. Reports include guests with a clear "Guest" badge.
+
+**Certificate issuance**: if the activity issues certificates and the guest meets completion, a certificate is generated and emailed (downloadable from the guest's magic link). The cert's verification URL works the same as for students. **Survey gating still applies**: the guest is emailed the survey link; cert unlocks on submission or after the 30-day auto-release fallback.
+
+**Magic-link security**:
+- Tokens are activity-scoped, registration-scoped, single-use for the email-verification step, and reusable but expirable for the "manage my registration" portal (default expiry 30 days post-activity).
+- Lost link: guest enters their email on the public page; a new magic link is sent (rate-limited to prevent spam).
+
+**Bulk import for invited guests**: Coordinator can paste a CSV (name, email, phone, guest_type) of invited guests, pre-creating their registrations. Each gets a personalized magic link emailed to confirm. Useful for "we invited 30 parents — pre-register them".
+
+**Audit & reporting**: every guest registration is audit-logged. Guest rosters and counts show on the activity dashboard alongside student counts (separated: "Students: 42 / Guests: 8").
+
+**Privacy & profile**: guests do not appear in cross-activity student search, do not get a "student-style" profile page, and are excluded from internal dashboards that focus on student engagement. Their data is retained per §14.11.
+
 ### 7.2 Cancellation by student
 
 - Behavior depends on the activity's **cancellation policy** (set at creation, see §6.1):
@@ -371,9 +419,9 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - Trade-off: a non-engaged promoted student who doesn't check the app might silently no-show. Acceptable because attendance/no-show tracking already surfaces this pattern.
 - Waitlist may be capped (configurable) or unlimited.
 
-### 7.4 Capacity model — hybrid (course roster + per-session)
+### 7.4 Capacity model — hybrid (program roster + per-session)
 
-> Activity capacity is a single course-wide cap by default ("the team of 30"). For multi-session activities, optional per-session features layer on top. Attendance is decoupled from sign-up.
+> Activity capacity is a single program-wide cap by default ("the team of 30"). For multi-session activities, optional per-session features layer on top. Attendance is decoupled from sign-up.
 
 **Three layered concepts:**
 
@@ -402,23 +450,23 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - For Coordinator visibility: each session shows four counts — `signed_up`, `attended_signed_up`, `walked_in_without_signup`, `signed_up_no_show`.
 
 **Completion calculation (unchanged):**
-- For courses: completion = `attended_sessions / total_sessions ≥ completion_threshold`.
+- For programs: completion = `attended_sessions / total_sessions ≥ completion_threshold`.
 - Sign-up does not affect completion. Only attendance does.
 
 **Examples:**
 - *Football team*: capacity 30 (the squad). Per-session sign-up enabled, per-session capacity 20 (training session limit). 30 students register. Each training session, students sign up for 20 slots. 18 actually attend; 2 walk in unannounced and are still marked Present.
-- *Public Speaking course*: capacity 25 (everyone takes the full course). Per-session features OFF. Attendance per session for completion calc.
+- *Public Speaking program*: capacity 25 (everyone takes the full program). Per-session features OFF. Attendance per session for completion calc.
 - *Drop-in lecture series*: capacity 100. Per-session sign-up enabled, per-session capacity 100. Each lecture has its own room.
 
 **Constraints:**
-- Per-session features are only available for multi-session activities (Course, multi-session Workshop).
+- Per-session features are only available for multi-session activities (Program, multi-session Workshop).
 - Per-session sign-up window can differ from registration window: e.g. register at semester start, sign up week-by-week.
 - Conflict detection (§7.5) applies at the session level when per-session sign-up is on.
 
 ### 7.5 Conflict detection (block)
 - At registration time, system checks the student's existing **Registered** activities for time overlap with this activity's `start_at` ↔ `end_at` (or any of its sessions).
 - If overlap → registration **blocked** with a clear message naming the conflicting activity.
-- For multi-session courses: each session is checked individually; conflict on any session blocks the registration.
+- For multi-session programs: each session is checked individually; conflict on any session blocks the registration.
 - Manager / Coordinator on-behalf registration: same rule by default; with explicit override option (logged in audit).
 
 ### 7.6 On-behalf registration
@@ -476,14 +524,14 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 
 ### 8.2 Per-session vs. per-activity
 - Single-session (Event, single Workshop): one attendance record per registration.
-- Multi-session (Course, multi-day Workshop): one record per session per registration.
+- Multi-session (Program, multi-day Workshop): one record per session per registration.
 
 ### 8.3 Late / partial credit
 - Configurable: whether "Late" counts as Present for completion calculation. Default: counts as present.
 - Half-credit option (e.g. left early) — recorded as flag, doesn't impact completion by default.
 
 ### 8.4 Completion calculation
-- For courses: `present_count / total_sessions ≥ completion_threshold` → Completed.
+- For programs: `present_count / total_sessions ≥ completion_threshold` → Completed.
 - For events/workshops: present at the (single) session → Completed.
 - Completion is **finalized at manual closure** (§13.1). Until then, "would-be" status is shown as preview only.
 - Coordinator can manually flip a student's status with reason (audit-logged) before or after closure.
@@ -498,9 +546,17 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 ## 9. Module — Certificates
 
 ### 9.1 Templates
-- Per activity type (Event, Course, Workshop, Campaign) there is a default template; Coordinator can pick a different template at creation.
-- Template includes: branding, title, student name, activity title, date(s), hours/credits, signatory, verification code + QR.
+- Per activity type (Event, Program, Workshop, Campaign) there is a default template; Coordinator can pick a different template at creation.
+- Template includes: branding, title, student name, activity title, date(s), hours, signatory, verification code + QR.
 - Manager manages templates (CRUD).
+
+### 9.1.1 Certificate hours
+- Each activity has a `cert_hours` field on its Activity record. Coordinator sets it manually at creation.
+- **Default value**: pre-populated from the sum of session durations (e.g. four 90-minute sessions → 6 hours). Editable.
+- Coordinator can override the default to account for prep work, between-session deliverables, or to round to standard CPD multiples.
+- The hours appear on the issued certificate exactly as set.
+- Change to `cert_hours` after certificates are issued: triggers a re-issue prompt for already-issued certs (audit-logged).
+- For Campaign-type activities (which may not have sessions), `cert_hours` defaults to 0 and is staff-set if relevant.
 
 ### 9.2 Issuance
 - Auto-generated when a registration reaches **Completed** state — which only happens after the Coordinator manually closes the activity (see §13.1).
@@ -542,7 +598,16 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - A club can sponsor an Activity. The activity goes through the same approval workflow.
 - The club's page lists upcoming/past sponsored activities.
 
-### 10.5 Reporting
+### 10.5 Recurring meetings (clubs that meet weekly)
+- Recurring meetings (e.g. "Photography Club meets every Tuesday 7pm") are modeled as **one Program-type activity per academic term**, with weekly sessions as the Program's Sessions.
+  - Example: a club running for the Fall 2026 term creates one Program-type activity "Photography Club — Fall 2026" with ~14 weekly sessions.
+  - Members register once for the Program (via club membership → Coordinator can bulk-register the club roster). Attendance is tracked per weekly session as for any Program.
+  - Completion threshold and certificate apply at term end (same Program flow).
+- Per-session sign-up is typically off for club meetings (the roster is the club roster, members come every week).
+- A new term = a new Program. Clone-from-closed (§15 Scenario M) makes the next term's setup one-click.
+- **Why Program-per-term rather than ad-hoc weekly events**: one budget, one roster, one certificate, one dashboard entry — operationally lighter and matches academic-term reality. A proper open-ended recurrence model (no end date) is deferred to v2.
+
+### 10.6 Reporting
 - Manager dashboard: number of active clubs, member counts, activity counts, advisor list.
 
 ---
@@ -635,6 +700,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 
 - **Manual close only**. After `end_at`, the activity remains in **InProgress** until the Coordinator (own) or Manager clicks **Close activity**. The system does NOT auto-close.
 - The Coordinator dashboard surfaces a **"Ready to close"** badge for any InProgress activity past `end_at` so they don't forget.
+- **No automatic notification escalation.** A "Ready to close" widget on the Manager dashboard lists all activities past `end_at` (sortable by days-overdue, owning Coordinator) so Manager has a single visible queue. No emails, no push, no auto-escalation. Rationale: closure has too many side effects (cert issuance, survey dispatch) to nag aggressively about, and Coordinators monitor their own dashboards.
 - Pre-close checklist shown to Coordinator (warnings, not blockers — they can close anyway):
   - Attendance recorded for all sessions.
   - Budget transactions reconciled (actual vs. approved).
@@ -679,11 +745,16 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - Coordinator (own activity): aggregate stats + free-text comments (anonymous).
   - Manager: aggregate stats across all activities + drill-in to per-activity comments. Custom report builder can pivot survey results.
   - Employees: do not see survey results unless they are co-coordinators.
-- **Internal-only — never visible to other students.** Survey responses (aggregate or individual comments) are **not exposed to any student**, including the activity's own attendees. Students see only that *they* submitted (private to themselves).
-- **Comment moderation** (since results are staff-only, this is for staff comfort and policy hygiene, not public exposure):
-  - Coordinator (own activity) can **flag** a comment as inappropriate; flagged comments are hidden from Coordinator's view by default but remain in Manager's view.
-  - Manager can **delete** an individual comment with a reason (audit-logged). Deleted comments are excluded from aggregates and exports.
-  - Anonymity guarantee remains: even when flagging or deleting, no staff member can identify the author. The system architecturally cannot link a SurveyResponse to a SurveyDispatch entry (§13.3 schema).
+- **Internal-only — never visible to other students.** Survey responses (aggregate or individual comments) are **not exposed to any student**, including the activity's own attendees. Students see only that *they* submitted (private to themselves). This is **not a social-media-style** feature; there is no public comment wall, no upvotes, no replies.
+- **Audience for comments**: only the activity's owning Coordinator (and co-coordinators) and Manager. Other Employees and other Coordinators do not see comments for activities they don't own.
+- **Comment moderation**: because the audience is small and trusted, no public-facing moderation surface is needed. Coordinator/Manager can hide an inappropriate comment from view (with reason, audit-logged) — this is housekeeping, not protection of other students. Anonymity guarantee is preserved: the system architecturally cannot link a SurveyResponse to a SurveyDispatch entry (§13.3 schema).
+
+#### Survey question library
+- Manager curates a tenant-wide **library of reusable custom questions** (rating, multiple-choice, open text, NPS templates).
+- At activity creation, Coordinator can: pick from library AND/OR add ad-hoc questions for this activity only.
+- **Library-question versioning**: editing a library question creates a new version; activities created with the prior version continue to use that version (their reports stay coherent). Library questions can be retired (no longer pickable for new activities) but not deleted while in use.
+- Library entries are tagged (e.g. "facilitator", "venue", "content depth") for quick search.
+- Manager-only CRUD on the library; Coordinators can suggest additions via a request flow (lightweight in v1: Coordinator clicks "suggest for library" on one of their ad-hoc questions; Manager approves/rejects).
 
 ### 13.4 Media gallery
 
@@ -702,7 +773,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - System auto-compresses on upload (target: long-edge resize + JPEG quality), keeps original up to the 20 MB cap.
   - On reaching quota, further uploads are blocked with a clear message; Coordinator can delete photos to free space, or request a quota increase from Manager (process TBD).
 - **Storage infrastructure**: managed by university IT. SAMA uses signed URLs with time-limited access for fetch. Hosting / CDN choice is an IT decision and not part of this PRD.
-- **Welfare module exclusion**: counseling and health appointments do NOT have media galleries. The gallery feature is exclusive to activities (events/courses/workshops/campaigns) and clubs.
+- **Welfare module exclusion**: counseling and health appointments do NOT have media galleries. The gallery feature is exclusive to activities (events/programs/workshops/campaigns) and clubs.
 
 ### 13.5 Follow-up tasks
 
@@ -861,9 +932,9 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 
 These scenarios trace real interactions across modules to expose gaps.
 
-### Scenario A — Coordinator runs a 4-session course
+### Scenario A — Coordinator runs a 4-session program
 
-1. Coordinator opens "New Activity" → type **Course**, fills title "Public Speaking 101", adds 4 sessions (Tue/Thu for 2 weeks), capacity 25, eligibility "all programs, year ≥ 1", completion threshold 75% (3 of 4 sessions), planned budget 500 SAR.
+1. Coordinator opens "New Activity" → type **Program**, fills title "Public Speaking 101", adds 4 sessions (Tue/Thu for 2 weeks), capacity 25, eligibility "all programs, year ≥ 1", completion threshold 75% (3 of 4 sessions), planned budget 500 SAR.
 2. Coordinator submits → state **Submitted**. Manager gets in-app + email notification.
 3. Manager reviews, approves with approved_amount = 500. State → **Approved**. Coordinator gets notification.
 4. Coordinator publishes. State → **Published**. Activity appears in catalog for eligible students.
@@ -873,7 +944,7 @@ These scenarios trace real interactions across modules to expose gaps.
 8. Session 1: Employee opens session, displays QR. Students scan; 22 marked Present, 3 marked Absent. Coordinator manually marks 1 of the absentees Present (was at the door, system glitch) — audit logged.
 9. Sessions 2–4 proceed similarly. After session 4 (`end_at` reached), system computes completion: 20 students hit ≥75% → **Completed**; 5 → **Failed**.
 10. Certificates auto-generated for the 20; emailed; downloadable in their profile. Verifiable via public URL.
-11. Coordinator records 2 budget transactions during the course (catering 200, supplies 150). Actual = 350; remaining = 150; variance shown in dashboard.
+11. Coordinator records 2 budget transactions during the program (catering 200, supplies 150). Actual = 350; remaining = 150; variance shown in dashboard.
 12. Activity transitions to **Completed**.
 
 ### Scenario B — Date change after publish
@@ -949,7 +1020,7 @@ These scenarios trace real interactions across modules to expose gaps.
 
 ### Scenario L — Manual closure with survey-gated certificates
 
-1. The 4-session course from Scenario A has finished its last session yesterday. State remains **InProgress**; Coordinator's dashboard shows a "Ready to close" badge.
+1. The 4-session program from Scenario A has finished its last session yesterday. State remains **InProgress**; Coordinator's dashboard shows a "Ready to close" badge.
 2. Coordinator opens the activity, reviews attendance, records final budget transactions, uploads 12 photos to the gallery, creates 2 follow-up tasks ("Send thank-you to facilitator", due in 3 days; "Submit faculty report", due in 7 days), and skips the optional post-event report.
 3. Coordinator clicks **Close activity**. System:
    - Sets state → **Completed**.
@@ -997,7 +1068,7 @@ These scenarios trace real interactions across modules to expose gaps.
 
 ### Scenario R — Football team with hybrid capacity
 
-1. Coordinator creates "Football team" as a Course — capacity 30, multi-session (weekly trainings + matches), `per_session_signup_enabled = true`, `per_session_capacity_enabled = true`, `signup_flow = register_first`.
+1. Coordinator creates "Football team" as a Program — capacity 30, multi-session (weekly trainings + matches), `per_session_signup_enabled = true`, `per_session_capacity_enabled = true`, `signup_flow = register_first`.
 2. 30 students register; team is the "squad of 30".
 3. For Tuesday training, Coordinator sets per-session capacity = 20 (jerseys/equipment limit). 20 students sign up; sign-up form blocks the 21st with "session full — try Thursday training".
 4. Tuesday: 18 of the 20 signed-up students show. 2 walked in without signing up (one came back from injury). Employee marks all 20 Present; system shows "session capacity exceeded by 0" warning (still within capacity since 18 + 2 = 20). All attendances recorded.
@@ -1048,7 +1119,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 ### Attendance & completion
 - **BR-AT1**: Attendance can be recorded by QR (student-driven) or manually (staff-driven).
 - **BR-AT2**: Late counts as Present by default (configurable).
-- **BR-AT3**: Course completion = `present_sessions / total_sessions ≥ completion_threshold`.
+- **BR-AT3**: Program completion = `present_sessions / total_sessions ≥ completion_threshold`.
 - **BR-AT4**: Single-session activity completion = present at the session.
 - **BR-AT5**: ~~Optional deliverable requirement gates Completion regardless of attendance.~~ *(Deferred: deliverables not in v1.)*
 - **BR-AT6**: Attendance can be edited within X days post-session by staff; thereafter only Manager.
@@ -1103,7 +1174,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-CX4**: `requires_approval` activities have a Coordinator-defined application form (1–5 questions). Student answers stored on Registration; Coordinator/Manager see them in the queue.
 - **BR-CX5**: Reapply policy on rejection is per-activity: `unlimited` / `one_retry` / `final`.
 - **BR-CX6**: Late-cancellation requests (when policy = deadline + late-request) **remain in queue indefinitely**. Coordinator can decide retroactively, even after `start_at`. Approval post-event supersedes any system-set NoShow.
-- **BR-CX7**: Activity capacity is course-wide ("the team"). Per-session sign-up and per-session capacity are optional layers; attendance is decoupled from sign-up.
+- **BR-CX7**: Activity capacity is program-wide ("the team"). Per-session sign-up and per-session capacity are optional layers; attendance is decoupled from sign-up.
 - **BR-CX8**: A student can attend a session without prior sign-up; their attendance record is normal.
 - **BR-CX9**: Per-session capacity governs sign-ups, not physical attendance. Walk-ins are admitted past capacity with a non-blocking warning.
 - **BR-CX10**: Sign-up flow is per-activity: `register_first` (default) requires activity registration before per-session sign-up; `signup_first` lets sign-up create the registration.
@@ -1130,6 +1201,18 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-WF1 (Welfare permission matrix)**: per-role-per-module permission matrix (`none` / `summary` / `view` / `manage`). Manager-Welfare configures. Defaults: counselors silo, nurses silo, Manager-Welfare sees all; adjacent roles may receive `summary` (dates only, no content).
 - **BR-WF2 (Welfare audit)**: every read of a welfare note is audit-logged regardless of role.
 - **BR-WF3 (Student welfare view)**: student sees appointment dates / staff / status of their own welfare records. Notes content is staff-only in v1.
+
+### Cross-cutting (round 22–23)
+- **BR-PG1 (Program-per-term)**: weekly clubs / recurring meetings are modeled as one Program-type activity per academic term with weekly sessions; new term = new Program (clone-from-closed supported).
+- **BR-CRT1 (Certificate hours)**: `Activity.cert_hours` is staff-set; default value pre-populated from the sum of session durations; editable.
+- **BR-PHO1 (Profile photo)**: source is university feed by default; student may upload an override that enters moderation before display. One-click revert to feed.
+- **BR-GST1 (Guest registration)**: per-activity `allow_guest_registration` flag. Non-students register via a public signed URL with name/email/phone + email verification. Guests are `User` rows with `kind = guest`; no password, no department role, no eligibility-rule matching. Access to their own data via tokenized magic links.
+- **BR-GST2 (Guest paid)**: guests for paid activities go through the same external finance gateway as students (§7.8). SAMA tracks `fee_status` identically.
+- **BR-GST3 (Guest completion)**: attendance, completion threshold, NoShow, certificate issuance, and survey gating apply to guests identically to students. Certificate is emailed; verifiable at the public verify URL.
+- **BR-GST4 (Guest data boundary)**: guests are excluded from eligibility-rule matching, welfare modules, the catalog, cross-activity search, and student engagement dashboards.
+- **BR-CLS1 (Ready-to-close)**: Manager dashboard widget lists InProgress activities past `end_at` (sortable). No automatic notifications, escalations, or auto-closure.
+- **BR-SUR1 (Survey audience)**: survey results — including comments — are visible only to the activity's owning Coordinator(s) and Manager. Never to students or unrelated staff. Anonymity guarantee preserved at the data layer.
+- **BR-SUR2 (Question library)**: Manager-curated, tenant-wide, versioned. Coordinators pick from library and/or add ad-hoc questions per activity. Suggested additions submitted to Manager.
 
 ---
 
@@ -1183,19 +1266,18 @@ These are decisions still pending or assumptions you should pressure-test.
 
 ### 18.2 Things not yet asked (still open)
 - **Group registration**: can a student register a group of friends, or is each registration individual? Default: individual.
-- **Attendance threshold**: §5.3 defaults to 80% for courses. Confirm; allow per-activity override at creation.
-- **Recurring activities**: weekly clubs that meet every week — model as a Course with weekly sessions or as a different structure? §10.4 implies club activities use the standard activity flow.
+- **Attendance threshold**: §5.3 defaults to 80% for programs. Confirm; allow per-activity override at creation.
 - **Staff scheduling conflicts**: §14.5 doesn't currently warn when an Employee is assigned to two overlapping activities. Add?
-- **Visitors / non-students**: any need for non-student attendees (faculty guests, external invitees)? Not currently modeled.
 - **Capacity for waitlist**: unlimited or capped (e.g. max 50 on waitlist per activity)?
-- **Certificate hours/credits**: do certificates carry CPD-style hours, and if so, is that auto-calculated from session durations or manually set?
 - **Multi-currency**: confirm single currency for v1; tenant settings (§4.0) supports per-tenant currency for future SaaS.
 - **Notification quiet hours**: §14.1 mentions per-user quiet hours; confirm whether this is needed in v1.
 - **Bulk operations on registrations**: Coordinator may need bulk-email-all-registered, bulk-mark-attendance-from-list, bulk-export-roster. Confirm which are v1.
 - **Activity cloning / templates** (covered for closed activities in §15 Scenario M): are there pre-built templates for common activity types at creation time? Probably v2.
-- **Profile photo for student ID/QR card**: does each Student profile carry a photo for visual verification at check-in? Source — student upload, university photo feed, both?
 - **Provider choice for email/SMS**: SES vs. SendGrid vs. local SMTP; SMS provider Twilio vs. local SAR provider. Implementation detail; flagged for the build phase.
 - **Backup and disaster recovery**: RPO/RTO targets; off-site replication. IT-managed; document in a separate Ops doc.
+
+*(Resolved round 22: recurring activities → §10.5 Program-per-term; certificate hours → §9.1.1 manual with auto-default; profile photo → §4.1 feed with moderated student override.)*
+*(Resolved round 23: visitors / non-students → §7.1.6 guest registration with magic-link, opt-in per activity.)*
 
 ### 18.3 Remaining sub-questions (after rounds 17–19)
 
@@ -1208,21 +1290,20 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - **Cross-department reporting**: a tenant-wide report (e.g. "all activities across Student Activities + Alumni") needs a TenantAdmin role to view. Out of scope for v1, flagged for v2.
 
 ### 18.4 Gaps from post-event decisions (rounds 13–15)
-- **"Ready to close" age threshold**: how long can an activity sit past `end_at` in InProgress before the system nags? Soft nudge after 7 days? Hard escalation to Manager after 30 days? Currently undefined — risk: stale activities forever in limbo.
 - **Re-close after reopen — survey behavior**: if a reopened activity adds a brand-new attendee whose registration becomes Completed, does that student receive the survey only, or are previously-submitted surveys re-opened for editing? Default: only new attendees get a fresh dispatch; previous responses are immutable. Confirm.
 - **Survey edit window for students**: once submitted, can a student edit their answers? Default: no (immutable to preserve aggregate integrity). Confirm.
 - **Auto-release fallback (30 days)**: configurable globally or per-activity? Should Manager be able to disable auto-release for high-stakes activities?
-- **Anonymous comments and harassment**: anonymity guarantee means a malicious comment cannot be traced. Need a documented response policy (Manager moderation, comment hide-on-flag). Currently no hide/flag mechanism specified.
 - **Internal-only photos**: the per-photo "internal only" flag is granular. Is bulk-mark-internal needed? Confirm UX.
 - **Follow-up task ownership transfer**: can a task owner reassign? Default: yes (logged). Confirm.
 - **Follow-up task SLAs / escalation**: if a task is overdue by N days, escalate to Manager? Currently only notifications fire to the owner.
 - **Clone — what about co-coordinators and employee assignments**: should those carry over by default, or always start fresh? Default suggested: assignments do NOT carry; Coordinator (cloner) becomes owner; co-coordinators/employees re-assigned manually. Confirm.
-- **Survey question library**: is there a shared library of reusable custom questions Coordinators can pick from, or does each Coordinator build from scratch each time? Recommended: a Manager-managed library.
 - **Survey export**: can Manager export raw (anonymous) responses to CSV for external analysis? Likely yes; confirm and ensure export does not include any dispatch-side identifying data.
 - **Closing partial completions**: what happens when Coordinator closes an activity with attendance still missing for some sessions? System currently warns (pre-close checklist) but doesn't block. Confirm this is intentional.
 - **Reopen audit visibility to students**: should students be told "this activity was reopened — your records may have been updated"? Currently only staff are notified. Decide.
 - **Survey impact on activities without certificates**: a Campaign-type activity with no certs — is the standard survey still mandatory? Currently yes (auto-attached). Confirm Coordinator can opt out for awareness campaigns.
 - **Media gallery storage costs**: at scale (hundreds of activities × dozens of photos), storage and CDN costs add up. Need a quota/policy decision before launch.
+
+*(Resolved round 23: ready-to-close → §13.1 Manager dashboard widget, no notifications; anonymous comments → §13.3 staff-only audience clarified, no public moderation needed; survey question library → §13.3 Manager-curated, versioned, with Coordinator suggestion flow.)*
 
 ### 18.5 Decisions deferred
 - **Microsoft SSO**: deferred to a later phase. Local auth in v1.
@@ -1307,7 +1388,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | # | Decision | Source |
 |---|----------|--------|
 | 1 | Roles: Manager, Coordinator, Employee, Student | earlier rounds |
-| 2 | Activity types: Event, Course, Workshop, Campaign | earlier rounds |
+| 2 | Activity types: Event, Program, Workshop, Campaign | earlier rounds |
 | 3 | Health module = appointments + walk-in visit logs | round 8 |
 | 4 | Counseling = 1:1 only | round 8 |
 | 5 | Clubs = persistent with rosters & committees | round 8 |
@@ -1340,7 +1421,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 32 | Cancellation policy: per-activity choice (no-cancel / anytime / deadline / deadline + late-request) | round 16 |
 | 33 | Data retention: keep all records forever; UI deletes are soft deletes; hard delete is infrastructure-level only | round 16 |
 | 34 | Payments: SAMA does NOT process payments; read-only integration with university finance system | round 16 |
-| 35 | Capacity model: hybrid — course-wide capacity + optional per-session sign-up + optional per-session capacity; attendance decoupled from sign-up | round 16 |
+| 35 | Capacity model: hybrid — program-wide capacity + optional per-session sign-up + optional per-session capacity; attendance decoupled from sign-up | round 16 |
 | 36 | Registration approval: default auto-confirm (FCFS); per-activity `requires_approval` flag for selective opportunities (Pending state, Coordinator decides) | round 16 |
 | 37 | Single Manager in v1, but design supports multiple Managers and per-department roles via DepartmentRole | round 16 |
 | 38 | Single department / single tenant in v1; schema includes `tenant_id` + `department_id` to support future multi-department (Alumni, Colleges) and SaaS multi-tenancy | round 16 |
@@ -1366,8 +1447,16 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 58 | Public catalog: per-activity `is_public` flag exposing only title, dates, brief description, capacity status | round 21 |
 | 59 | Waitlist promotion is auto-confirm (no separate confirmation window); cancel flow handles "can't make it" | round 21 |
 | 60 | Welfare visibility is a per-role-per-module permission matrix (`none`/`summary`/`view`/`manage`); Manager-Welfare configures; student sees their own appointment metadata but not notes | round 21 |
+| 61 | Terminology: "Course" renamed to "Program" globally (glossary, schema enums, scenarios, decisions) | round 22 |
+| 62 | Recurring activities (clubs that meet weekly): one Program-type activity per academic term with weekly sessions; new term = new Program | round 22 |
+| 63 | Certificate hours: `Activity.cert_hours` is staff-set; default = sum of session durations; editable | round 22 |
+| 64 | Profile photo: university feed first; student may upload an override (moderated); one-click revert to feed | round 22 |
+| 65 | Guest registration: per-activity opt-in. Non-students register via public signed URL with email verification; `User.kind = guest`; magic-link access only; works for paid activities through the same finance gateway | round 23 |
+| 66 | Survey comments are visible only to owning Coordinator(s) + Manager. Not a social-media-style feature; no public moderation surface needed | round 23 |
+| 67 | Ready-to-close: Manager dashboard widget only; no notification escalation, no auto-closure | round 23 |
+| 68 | Survey question library: Manager-curated, tenant-wide, versioned. Coordinators pick from library and/or add ad-hoc questions; suggested additions go to Manager for approval | round 23 |
 
 ---
 
-*End of PRD. The PRD is substantively complete for v1 scope. Remaining open items are narrow and listed in §18.3 (e.g. finance reference-number format, auto-decision deadline default, per-session waitlist behavior). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
+*End of PRD. The PRD is substantively complete for v1 scope. Remaining open items are narrow and listed in §18.2 / §18.3 (e.g. finance reference-number format, auto-decision deadline default, per-session waitlist behavior, staff scheduling-conflict warnings, bulk operations confirm). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
 
