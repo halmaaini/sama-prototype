@@ -279,6 +279,8 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - `register_first` (default) — student must be Registered for the activity before they can sign up for sessions.
   - `signup_first` — sign-up to a session implies (and creates) the activity registration.
   - See §7.4 for behavior details.
+- **Self check-in toggle** (`self_checkin_enabled`, default false). When true, students can check themselves into a session by scanning a session-specific QR code (rotates each session, displayed by Employee on screen at the venue). Geofence-optional and time-window-enforced (only valid from session `start_at − 15min` to session `end_at`). Useful for large lectures (200+) where Employee scanning is a bottleneck. Default off — Employee scan is the safer default.
+- **Public catalog toggle** (`is_public`, default false). When true, the activity appears in a public (no-login) catalog view that shows: title, brief description, dates, current capacity status (Open / Waitlist / Full). It does **not** show: enrolled student names, photos, eligibility internals, application questions, welfare-adjacent details. Login is still required to register, view full details, or interact. Default off — opt-in per activity, because some activities (welfare-adjacent, scholarship trips, internal-only) should not be public.
 
 ### 6.2 Approval flow
 - Coordinator submits → activity enters **Submitted**.
@@ -364,7 +366,9 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - Auto-promotion on:
   - A Registered student cancels.
   - Capacity is raised by Coordinator.
-- On promotion: student's registration → Registered; notification sent (in-app + email + push). Student may have a short window to confirm or release (configurable; e.g. 24h or until 6h before start, whichever earlier). On no-confirm, drop and promote next.
+- **Promotion is auto-confirm — no separate confirmation window.** Promoted student's registration → Registered immediately; in-app + email + push notification fires: "A seat opened up — you're now Registered for [activity]. If you can't make it, please cancel."
+  - Rationale: lower friction; the existing cancel flow handles the "actually I can't come" case and frees the seat for the next person automatically.
+  - Trade-off: a non-engaged promoted student who doesn't check the app might silently no-show. Acceptable because attendance/no-show tracking already surfaces this pattern.
 - Waitlist may be capped (configurable) or unlimited.
 
 ### 7.4 Capacity model — hybrid (course roster + per-session)
@@ -545,23 +549,55 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 
 ## 11. Module — Welfare services
 
+### 11.0 Welfare role permission matrix
+
+The welfare module supports multiple specialized Employee roles (Counselor, Nurse / Health staff, Housing staff, etc.). Cross-track visibility is **not strict siloing** and **not all-open** — it's a **per-role permission matrix** configured by Manager-Welfare.
+
+For each welfare role and each welfare module, the matrix grants one of:
+- `none` — role cannot see this module at all (not even visit counts).
+- `summary` — role sees high-level summary only (visit dates, status, no notes). Useful for "I should know my student saw a nurse last week" without leaking content.
+- `view` — role can read full notes (read-only).
+- `manage` — role can create and edit records in this module (their own primary track).
+
+**Defaults out-of-the-box** (Manager-Welfare can adjust):
+
+| Role | Counseling | Health | Housing | Other |
+|---|---|---|---|---|
+| Counselor | manage | summary | none | none |
+| Nurse / Health | none | manage | none | none |
+| Housing staff | none | none | manage | none |
+| Manager-Welfare | view | view | view | view |
+
+- The "Nurse can have view on some modules, Counselor only sees her module" pattern is achievable by editing the matrix per role.
+- Every read of any welfare record (counseling note, health note, housing log) is audit-logged regardless of role (§14.4).
+- A student opening their own profile sees: appointment dates + attending staff name + status. They do **not** see notes content by default (see §11.4 for the student-visible summary).
+- Changing the matrix is audit-logged; new permissions apply prospectively (not retroactive to prior reads).
+
 ### 11.1 Counseling (1:1 only)
 - **Slots**: counselor (Employee) creates open slots on a calendar (recurring or one-off). Slots have duration (e.g. 45 min).
 - **Booking**: student selects a slot, optionally provides a brief reason. Confirmation via in-app + email. Reminder 24h before via push + email.
 - **Cancellation**: student or counselor can cancel up to a configurable window before the slot. Late cancellation recorded.
 - **Session record**: counselor opens the appointment, fills **CounselingNote** (body, attachments). Marks status (Completed / NoShow / Cancelled).
-- **Visibility**: notes visible to that counselor + Manager. Other Employees do not see them. Students see only that the appointment occurred (date/time/counselor); no notes by default. Audit log records every read of a note (sensitive data viewing) — see §14.4.
+- **Visibility**: governed by the §11.0 matrix. Default: `manage` for Counselors on their own assigned students; `view` for Manager-Welfare; `summary` (visit dates only, no content) for adjacent roles like Nurse only if the matrix grants it. Other Employees see nothing. Audit log records every read.
 
 ### 11.2 Health
 - **Appointments**: same shape as counseling — slots, booking, reminders, cancellation, post-visit notes.
 - **Walk-in visit logs**: Employee (health staff) records a walk-in: select student, complaint, action, referral, follow-up flag, notes. No prior booking required.
-- **Visibility**: appointment notes and visit logs visible to all health staff (Employee assigned to health) + Manager (configurable to "only the staff who logged" if stricter — see gap §18). Students see only the date/time/staff and a summary if exposed.
+- **Visibility**: governed by the §11.0 matrix. Default: `manage` for Nurse / Health on all health records; `view` for Manager-Welfare; `summary` for Counselor (i.e. counselor sees "Student X had a health visit on date Y" but not the medical content).
+- **Student.health_notes** (chronic conditions, allergies, etc. — informational flags on the student record): visible to any role with at least `summary` on Health. Surfaces a non-medical alert on the profile ("This student has a flagged health condition; contact Health for details").
 
 ### 11.3 Sensitive-data handling
-- **No special privacy mode** beyond standard RBAC (decision: Manager sees all).
-- Mandatory: every read of a counseling note, health note, or visit log is audit-logged (actor, target, timestamp). This is non-negotiable for accountability even though the visibility rules are simple.
+- RBAC is the §11.0 permission matrix; there's no separate "high-privacy mode" — the matrix is expressive enough.
+- Mandatory: every read of a counseling note, health note, or visit log is audit-logged (actor, target, timestamp). Non-negotiable.
 - Notes/logs are encrypted at rest at the storage layer.
 - Export of welfare records is restricted to Manager and audit-logged with reason field.
+
+### 11.4 Student-visible welfare summary
+- When a student opens their own profile → Welfare tab, they see:
+  - List of past appointments (date, time, module, staff name, status).
+  - Upcoming appointments with reschedule / cancel actions (within policy windows).
+  - **No notes content.** A student cannot read what the counselor wrote about them in v1. Rationale: counselor needs candor for accurate clinical notes; a future "shared note" feature is post-v1.
+- Students do not see flags like `health_notes` or `housing_priority` directly on their own profile (those are staff-facing tags).
 
 ---
 
@@ -735,7 +771,14 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - Budget alerts (Manager + owning Coordinator)
   - Welfare appointment confirmations & reminders
 - **Templates**: maintained centrally; English only in v1.
-- **Delivery**: queue-based; retries with backoff; failures audit-logged.
+- **Delivery — tracked, not fire-and-forget:**
+  - Every outbound notification creates a `NotificationDelivery` record per channel with status: `queued → sent → delivered | bounced | failed`.
+  - **Retry policy**: 3 attempts with exponential backoff (1 min, 5 min, 30 min) for transient failures. Hard bounces (invalid address) are not retried.
+  - **Failure surfacing**:
+    - Failed email/SMS appears in the recipient's in-app inbox automatically (in-app is the always-reliable fallback), with a small "email could not be delivered" indicator.
+    - Manager dashboard has an **Undelivered notifications** report: counts by category and date, drillable to individual deliveries. Helps catch systemic problems (e.g. expired SMTP credentials).
+    - Provider webhooks (bounce/complaint) update delivery state; bounced addresses can be flagged on the User record so future sends skip that channel.
+  - **In-app is authoritative for compliance-relevant messages**: registration confirmation, approval decision, cancellation, waitlist promotion. Email is best-effort but never the only path.
 - **Quiet hours**: optional per-user no-push window (e.g. 10pm–7am).
 
 ### 14.2 Reports & dashboards
@@ -779,9 +822,27 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - Student catalog search: by keyword, type, category/tag, date range.
 
 ### 14.8 Internationalization
-- English only in v1. UI strings externalized to enable later Arabic/RTL addition without refactor.
+- **English only in v1.** UI strings externalized via i18n keys from day one to enable later Arabic addition without refactor.
+- All system text, emails, certificates, and surveys are English in v1.
+- **Arabic + RTL is post-v1.** Plan for full bilingual support with RTL mirroring; activity content (titles, descriptions) likely needs a per-field language pair (`title_en`, `title_ar`) — defer the modeling to the i18n v2 spec but reserve the column names now.
+- Time zone: Asia/Riyadh (UTC+3, no DST). All timestamps stored in UTC; displayed in Asia/Riyadh.
 
-### 14.9 Data retention
+### 14.9 Concurrent edits and data integrity
+- **Optimistic locking** on every editable entity. Each row has a `version` integer that increments on save.
+- **On save**: client sends the version it loaded. If DB version differs, save fails with `409 Conflict`.
+- **Conflict UI**: a modal explains "someone else changed this while you were editing", shows what changed (field-by-field diff: their value vs. your value), and offers: **Reload and re-apply my changes** (recommended) / **Discard my changes**. No silent overwrites.
+- **Audit log** records every conflict resolution so Manager can see how often it happens.
+- Applies to: activities, sessions, registrations, clubs, club memberships, budget transactions, welfare appointments, certificate templates, role assignments.
+
+### 14.10 Account lifecycle — out of scope for v1
+- Identity provider (university IdP) is the source of truth for whether a user can log in.
+- When a student graduates, an Employee leaves the university, or any user's IdP account is disabled, SAMA simply sees "can no longer authenticate". No special in-app workflow.
+- Active registrations, owned activities, etc. remain in SAMA records for historical integrity but the actor cannot log in to manage them.
+- **Implication for Coordinator departures**: if a Coordinator leaves with open activities, Manager must manually reassign ownership. Surfaced as a Manager nag ("Activity X has an inactive owner") — implemented as a daily reconciliation against the IdP feed.
+- **Implication for student departures mid-semester**: Coordinator sees the student is still Registered for future events; system flags "user account inactive" on the roster. Coordinator decides per case whether to cancel the registration. No auto-cancel.
+- Detailed lifecycle workflows (Alumni status conversion, role re-assignment automation) are deferred to v2.
+
+### 14.11 Data retention
 - **Keep everything.** All records (activities, registrations, attendance, certificates, surveys, follow-ups, media, welfare notes, audit log) are retained indefinitely for historical reporting.
 - **Soft delete only (in-app).** When a Manager (or system) "deletes" a record, the row is marked with `deleted_at` (and `deleted_by`, `deletion_reason`). It disappears from default views but remains queryable for audit, reports, and undelete.
   - Every entity that supports deletion has a `deleted_at` column.
@@ -1057,6 +1118,19 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-T6**: Module enablement in v1 is install-time only. No in-app UI; reserved for future TenantAdmin.
 - **BR-T7**: Cross-department student data: when a student of any department registers for an activity in another department, the receiving Coordinator sees the student's full profile (no minimum-necessary masking in v1).
 
+### Cross-cutting: edits, lifecycle, language, notifications, welfare matrix
+- **BR-CC1 (Optimistic locking)**: every editable entity has a `version` field. Save is rejected if version differs; UI shows field-by-field conflict diff and offers reload-and-reapply. No silent overwrites.
+- **BR-CC2 (Account lifecycle)**: account activation/deactivation lives in the IdP, not SAMA. SAMA records persist after a user becomes inactive; Manager is nagged when an inactive user owns active activities; no auto-cancel of student registrations on departure.
+- **BR-CC3 (Language)**: v1 is English-only. All text is i18n-keyed for later Arabic + RTL addition without refactor. Time zone Asia/Riyadh; timestamps stored in UTC.
+- **BR-CC4 (Notification delivery)**: every notification produces a `NotificationDelivery` record with status. 3 retries with exponential backoff. Failed email/SMS automatically surfaces in the user's in-app inbox. Manager has an "Undelivered notifications" report.
+- **BR-CC5 (In-app authoritative)**: compliance-relevant messages (approval decision, cancellation, waitlist promotion, registration confirmation) are always delivered in-app even if email/SMS fails.
+- **BR-AC1 (Self check-in)**: per-activity `self_checkin_enabled` flag. When on, students scan a session-rotating QR; check-in valid only within `start_at − 15min` to `end_at`.
+- **BR-AC2 (Public catalog)**: per-activity `is_public` flag. Public view exposes title, brief description, dates, capacity status. Never names, photos, or eligibility internals.
+- **BR-WL1 (Waitlist auto-confirm)**: promotion is automatic; no separate confirmation window. Promoted student → Registered immediately; standard cancellation flow handles the "can't make it" case.
+- **BR-WF1 (Welfare permission matrix)**: per-role-per-module permission matrix (`none` / `summary` / `view` / `manage`). Manager-Welfare configures. Defaults: counselors silo, nurses silo, Manager-Welfare sees all; adjacent roles may receive `summary` (dates only, no content).
+- **BR-WF2 (Welfare audit)**: every read of a welfare note is audit-logged regardless of role.
+- **BR-WF3 (Student welfare view)**: student sees appointment dates / staff / status of their own welfare records. Notes content is staff-only in v1.
+
 ---
 
 ## 17. Non-functional requirements
@@ -1105,10 +1179,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 These are decisions still pending or assumptions you should pressure-test.
 
 ### 18.1 Gaps from explicit decisions
-- **Health module dual-mode** (appointments + walk-ins): visibility scope of walk-in logs is currently "all health Employees + Manager". Is that correct, or should it be "only the staff who logged it + Manager" for stricter privacy? Affects BR-W3.
-- **Counseling student visibility**: students currently see only the fact of the appointment, not any summary. Should counselors be able to share an optional "summary for student"? This is common practice. Decide before build.
-- **Waitlist confirmation window**: when promoted from waitlist, do students need to confirm within X hours, or is auto-acceptance the right default? §7.3 lists it as optional.
-- **Self check-in**: §8.1 mentions optional self check-in for low-stakes events. Include in v1 or strict QR + manual only?
+*(Rounds 20–21 resolved the items previously listed here — welfare permission matrix in §11.0, student-visible welfare summary in §11.4, waitlist auto-confirm in §7.3, self check-in flag in §6.1. This section is now empty; reintroduce items if new explicit-decision gaps are surfaced.)*
 
 ### 18.2 Things not yet asked (still open)
 - **Group registration**: can a student register a group of friends, or is each registration individual? Default: individual.
@@ -1117,10 +1188,14 @@ These are decisions still pending or assumptions you should pressure-test.
 - **Staff scheduling conflicts**: §14.5 doesn't currently warn when an Employee is assigned to two overlapping activities. Add?
 - **Visitors / non-students**: any need for non-student attendees (faculty guests, external invitees)? Not currently modeled.
 - **Capacity for waitlist**: unlimited or capped (e.g. max 50 on waitlist per activity)?
-- **Public-facing pages**: is the activity catalog visible to non-logged-in users (university recruitment angle), or login-required?
 - **Certificate hours/credits**: do certificates carry CPD-style hours, and if so, is that auto-calculated from session durations or manually set?
 - **Multi-currency**: confirm single currency for v1; tenant settings (§4.0) supports per-tenant currency for future SaaS.
 - **Notification quiet hours**: §14.1 mentions per-user quiet hours; confirm whether this is needed in v1.
+- **Bulk operations on registrations**: Coordinator may need bulk-email-all-registered, bulk-mark-attendance-from-list, bulk-export-roster. Confirm which are v1.
+- **Activity cloning / templates** (covered for closed activities in §15 Scenario M): are there pre-built templates for common activity types at creation time? Probably v2.
+- **Profile photo for student ID/QR card**: does each Student profile carry a photo for visual verification at check-in? Source — student upload, university photo feed, both?
+- **Provider choice for email/SMS**: SES vs. SendGrid vs. local SMTP; SMS provider Twilio vs. local SAR provider. Implementation detail; flagged for the build phase.
+- **Backup and disaster recovery**: RPO/RTO targets; off-site replication. IT-managed; document in a separate Ops doc.
 
 ### 18.3 Remaining sub-questions (after rounds 17–19)
 
@@ -1159,7 +1234,7 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - **Single Manager in v1**, but the schema supports multiple Managers and per-department role assignments via `DepartmentRole` (§4.0). No retrofit needed when a second Manager joins.
 - **Single Department in v1** (Student Activities). Schema includes `department_id` on all activities/clubs/welfare/budget/audit rows. Adding Alumni or Colleges as new departments later is a config + data-load operation, not a schema change. Each department can enable/disable modules independently.
 - **Single Tenant in v1** (one university). `tenant_id` is on every row from day one. Migrating to multi-tenant SaaS is primarily an operational concern (per-tenant provisioning, per-tenant URLs/branding, tenant-scoped admin role).
-- **All times in a single time zone** (Asia/Riyadh assumed). Stored UTC; displayed Riyadh. Confirm.
+- **All times in a single time zone** (Asia/Riyadh, UTC+3, no DST). Stored UTC; displayed Riyadh. Confirmed round 20.
 - **Storage**: file uploads (attachments, receipts, certificates, photos) need a blob store managed by university IT. Per-activity media quota = 500 MB; per-photo limit = 20 MB; no video in v1.
 
 ---
@@ -1283,8 +1358,16 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 50 | Hard-delete: out of scope for v1 — handled out-of-band when legally required | round 19 |
 | 51 | Cross-department student profile visibility: full profile to receiving Coordinator (no minimum-necessary masking in v1) | round 19 |
 | 52 | Module enablement: install-time only in v1; no in-app UI; reserved for future TenantAdmin role | round 19 |
+| 53 | Concurrent edits handled by optimistic locking with version field and field-diff conflict UI | round 20 |
+| 54 | Account lifecycle out of scope for v1; IdP is source of truth; SAMA reacts via nag on inactive owners only | round 20 |
+| 55 | Language: English only in v1; i18n keys from day one for later Arabic + RTL. Time zone Asia/Riyadh | round 20 |
+| 56 | Notification delivery tracked per channel; failed email/SMS surfaces in-app + Manager report; 3 retries with backoff | round 20 |
+| 57 | Self check-in: per-activity `self_checkin_enabled` flag with rotating session QR + time window | round 21 |
+| 58 | Public catalog: per-activity `is_public` flag exposing only title, dates, brief description, capacity status | round 21 |
+| 59 | Waitlist promotion is auto-confirm (no separate confirmation window); cancel flow handles "can't make it" | round 21 |
+| 60 | Welfare visibility is a per-role-per-module permission matrix (`none`/`summary`/`view`/`manage`); Manager-Welfare configures; student sees their own appointment metadata but not notes | round 21 |
 
 ---
 
-*End of PRD. Review §18 (Open questions & gaps) — particularly the remaining items in §18.2 (general open questions) and §18.4 (post-event sub-questions). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one. Rounds 17–19 closed most round-16 sub-questions; the remaining gaps are mostly UX defaults and welfare-module specifics that can be tightened in a final review.*
+*End of PRD. The PRD is substantively complete for v1 scope. Remaining open items are narrow and listed in §18.3 (e.g. finance reference-number format, auto-decision deadline default, per-session waitlist behavior). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
 
