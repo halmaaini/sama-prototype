@@ -157,40 +157,56 @@ const CasesTab = () => {
 /* ============================================================ Appointments */
 const AppointmentsTabC = () => {
   const [view, setView] = React.useState("upcoming");
-  const APPTS = [
-    { name:"Fatima Al-Nuaimi", sid:"20250314", date:"Today",      time:"4:00 PM",  counselor:"Dr. Maya",  reason:"Anxiety follow-up",      status:"Confirmed" },
-    { name:"Amina Khalil",     sid:"20250451", date:"Tomorrow",   time:"10:00 AM", counselor:"Dr. Yusuf", reason:"Family conflict",        status:"Confirmed" },
-    { name:"Omar Al-Mansoori", sid:"20250122", date:"Tomorrow",   time:"2:00 PM",  counselor:"Dr. Maya",  reason:"Adjustment check-in",    status:"Confirmed" },
-    { name:"Layla Ibrahim",    sid:"20250377", date:"Oct 30",     time:"11:00 AM", counselor:"Dr. Yusuf", reason:"Stress management",      status:"Confirmed" },
-    { name:"Sara Al-Shamsi",   sid:"20250488", date:"Oct 31",     time:"9:00 AM",  counselor:"Dr. Yusuf", reason:"Continuing support",     status:"Confirmed" },
-    { name:"Hassan Qureshi",   sid:"20250288", date:"Nov 2",      time:"3:00 PM",  counselor:"Dr. Maya",  reason:"Academic check-in",      status:"Pending"   },
-    { name:"Khalid Al-Falasi", sid:"20250612", date:"Nov 4",      time:"1:00 PM",  counselor:"Dr. Maya",  reason:"Initial consultation",   status:"Confirmed" },
-    { name:"Aisha Farhat",     sid:"20250155", date:"Nov 5",      time:"10:30 AM", counselor:"Dr. Yusuf", reason:"Career counseling",      status:"Confirmed" },
-    { name:"Noor Al-Hashimi",  sid:"20250341", date:"Nov 6",      time:"4:30 PM",  counselor:"Dr. Maya",  reason:"Self-referral",          status:"Pending"   },
+  const SEED = [
+    { id:1, name:"Fatima Al-Nuaimi", sid:"20250314", date:"Today",    time:"4:00 PM",  counselor:"Dr. Maya",  reason:"Anxiety follow-up",    status:"Confirmed" },
+    { id:2, name:"Amina Khalil",     sid:"20250451", date:"Tomorrow", time:"10:00 AM", counselor:"Dr. Yusuf", reason:"Family conflict",      status:"Confirmed" },
+    { id:3, name:"Omar Al-Mansoori", sid:"20250122", date:"Tomorrow", time:"2:00 PM",  counselor:"Dr. Maya",  reason:"Adjustment check-in",  status:"Confirmed" },
+    { id:4, name:"Layla Ibrahim",    sid:"20250377", date:"Oct 30",   time:"11:00 AM", counselor:"Dr. Yusuf", reason:"Stress management",    status:"Confirmed" },
+    { id:5, name:"Sara Al-Shamsi",   sid:"20250488", date:"Oct 31",   time:"9:00 AM",  counselor:"Dr. Yusuf", reason:"Continuing support",   status:"Confirmed" },
+    { id:6, name:"Hassan Qureshi",   sid:"20250288", date:"Nov 2",    time:"3:00 PM",  counselor:"Dr. Maya",  reason:"Academic check-in",    status:"Pending"   },
+    { id:7, name:"Khalid Al-Falasi", sid:"20250612", date:"Nov 4",    time:"1:00 PM",  counselor:"Dr. Maya",  reason:"Initial consultation", status:"Confirmed" },
+    { id:8, name:"Aisha Farhat",     sid:"20250155", date:"Nov 5",    time:"10:30 AM", counselor:"Dr. Yusuf", reason:"Career counseling",    status:"Confirmed" },
+    { id:9, name:"Noor Al-Hashimi",  sid:"20250341", date:"Nov 6",    time:"4:30 PM",  counselor:"Dr. Maya",  reason:"Self-referral",        status:"Pending"   },
   ];
   const PAST = [
-    { name:"Tariq Mansour", sid:"20250199", date:"Sep 28",  time:"1:00 PM", counselor:"Dr. Maya",  reason:"Career counseling", status:"Completed" },
-    { name:"Maria Costa",   sid:"20250507", date:"Sep 14",  time:"3:00 PM", counselor:"Dr. Yusuf", reason:"Initial intake", status:"Completed" },
+    { id:10, name:"Tariq Mansour", sid:"20250199", date:"Sep 28", time:"1:00 PM", counselor:"Dr. Maya",  reason:"Career counseling", status:"Completed" },
+    { id:11, name:"Maria Costa",   sid:"20250507", date:"Sep 14", time:"3:00 PM", counselor:"Dr. Yusuf", reason:"Initial intake",    status:"Completed" },
   ];
-  const list = view === "upcoming" ? APPTS : PAST;
-  const STATUS_TONE = { Confirmed:"green", Pending:"amber", Completed:"slate", Cancelled:"red" };
+
+  const [appts, setAppts] = React.useState(SEED);
+  const [rescheduleTarget, setRescheduleTarget] = React.useState(null);
+  const toast = useToast();
+  const STATUS_TONE = { Confirmed:"green", Pending:"amber", Completed:"slate", Cancelled:"red", Rescheduled:"indigo" };
+
+  const cancelAppt = (id) => {
+    setAppts(prev => prev.map(a => a.id === id ? { ...a, status:"Cancelled" } : a));
+    toast.push({ text:"Appointment cancelled · student notified", icon:Icon.X });
+  };
+  const saveReschedule = (newDate, newTime) => {
+    const label = newDate ? new Date(newDate).toLocaleDateString("en-GB", { day:"numeric", month:"short" }) : rescheduleTarget.date;
+    setAppts(prev => prev.map(a => a.id === rescheduleTarget.id ? { ...a, date:label, time:newTime, status:"Rescheduled" } : a));
+    toast.push({ text:`Rescheduled to ${label} at ${newTime}`, icon:Icon.Cal });
+    setRescheduleTarget(null);
+  };
+
+  const list = view === "upcoming" ? appts : PAST;
 
   return (
     <div className="p-6">
       <div className="flex items-center gap-3 mb-3">
-        <Segmented size="sm" value={view} onChange={setView} items={[{value:"upcoming",label:`Upcoming · ${APPTS.length}`},{value:"past",label:`Past · ${PAST.length}`}]}/>
+        <Segmented size="sm" value={view} onChange={setView} items={[{value:"upcoming",label:`Upcoming · ${appts.filter(a=>a.status!=="Cancelled").length}`},{value:"past",label:`Past · ${PAST.length}`}]}/>
         <span className="text-[11.5px] text-[var(--mute)] ml-auto">2 counselors · 3 rooms · 1 group room</span>
       </div>
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-[12.5px]">
           <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
             <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:font-medium">
-              <th>Student</th><th>Date</th><th>Time</th><th>Counselor</th><th>Reason</th><th>Status</th><th className="w-32"></th>
+              <th>Student</th><th>Date</th><th>Time</th><th>Counselor</th><th>Reason</th><th>Status</th><th className="w-36"></th>
             </tr>
           </thead>
           <tbody>
-            {list.map((a,i) => (
-              <tr key={i} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
+            {list.map((a) => (
+              <tr key={a.id} className={cx("border-b hairline-2 last:border-0 hover:bg-[#fafafa]", a.status==="Cancelled" && "opacity-50")}>
                 <td className="px-4 py-2"><div className="flex items-center gap-2"><Avatar name={a.name} size={22}/><div><div className="font-medium text-[var(--ink)]">{a.name}</div><div className="text-[11px] text-[var(--mute)]">{a.sid}</div></div></div></td>
                 <td className="px-4 py-2 font-medium">{a.date}</td>
                 <td className="px-4 py-2 font-mono text-[var(--mute)]">{a.time}</td>
@@ -198,19 +214,22 @@ const AppointmentsTabC = () => {
                 <td className="px-4 py-2">{a.reason}</td>
                 <td className="px-4 py-2"><Chip tone={STATUS_TONE[a.status]}>{a.status}</Chip></td>
                 <td className="px-4 py-2 text-right">
-                  {view==="upcoming" ? (
+                  {view === "upcoming" && a.status !== "Cancelled" ? (
                     <div className="flex items-center justify-end gap-1.5">
-                      <button className="text-[11.5px] text-[var(--accent)] hover:underline">Reschedule</button>
+                      <button onClick={()=>setRescheduleTarget(a)} className="text-[11.5px] text-[var(--accent)] hover:underline">Reschedule</button>
                       <span className="text-[var(--mute-2)]">·</span>
-                      <button className="text-[11.5px] text-[var(--bad)] hover:underline">Cancel</button>
+                      <button onClick={()=>cancelAppt(a.id)} className="text-[11.5px] text-[var(--bad)] hover:underline">Cancel</button>
                     </div>
-                  ) : <button className="text-[11.5px] text-[var(--accent)] hover:underline">View notes</button>}
+                  ) : view === "past" ? (
+                    <button className="text-[11.5px] text-[var(--accent)] hover:underline">View notes</button>
+                  ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+      {rescheduleTarget && <RescheduleModal appt={{...rescheduleTarget, doctor:rescheduleTarget.counselor}} onSave={saveReschedule} onClose={()=>setRescheduleTarget(null)}/>}
     </div>
   );
 };

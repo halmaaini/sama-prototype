@@ -155,41 +155,98 @@ const InjuriesTab = () => {
 };
 
 /* ============================================================ Appointments */
+const RescheduleModal = ({ appt, onSave, onClose }) => {
+  const TIMES = ["8:00 AM","8:30 AM","9:00 AM","9:30 AM","10:00 AM","10:30 AM","11:00 AM","11:30 AM","12:00 PM","1:00 PM","1:30 PM","2:00 PM","2:30 PM","3:00 PM","3:30 PM","4:00 PM","4:30 PM","5:00 PM"];
+  const [newDate, setNewDate] = React.useState("");
+  const [newTime, setNewTime] = React.useState(appt.time);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="bg-white rounded-[16px] shadow-float w-[440px] overflow-hidden anim-fade-up">
+        <div className="px-5 py-4 border-b hairline flex items-center justify-between">
+          <div>
+            <div className="text-[15px] font-semibold">Reschedule appointment</div>
+            <div className="text-[12px] text-[var(--mute)] mt-0.5">{appt.name} · {appt.reason}</div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-[7px] hover:bg-black/5 flex items-center justify-center text-[var(--mute)]"><Icon.X width={14} height={14}/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">New date</label>
+            <input type="date" value={newDate} onChange={e=>setNewDate(e.target.value)} className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">New time</label>
+            <div className="flex flex-wrap gap-1.5">
+              {TIMES.map(t => (
+                <button key={t} onClick={()=>setNewTime(t)} className={cx("px-2.5 h-7 rounded-[6px] text-[11.5px] border transition-colors", newTime===t?"bg-[var(--ink)] text-white border-[var(--ink)]":"hairline text-[var(--mute)] hover:text-[var(--ink)]")}>{t}</button>
+              ))}
+            </div>
+          </div>
+          <div className="p-3 rounded-[8px] bg-[var(--accent-wash)] text-[11.5px] text-[var(--accent-ink)]">
+            Patient will receive a reschedule notification automatically.
+          </div>
+        </div>
+        <div className="px-5 pb-4 flex justify-end gap-2">
+          <Btn variant="outline" onClick={onClose}>Cancel</Btn>
+          <Btn variant="default" icon={Icon.Cal} onClick={()=>onSave(newDate, newTime)} disabled={!newDate}>Confirm reschedule</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const AppointmentsTab = () => {
   const [view, setView] = React.useState("upcoming");
-  const APPTS = [
-    { name:"Khalid Al-Falasi",  sid:"20250612", date:"Today",      time:"4:00 PM",  doctor:"Dr. Khaled", reason:"Pre-tournament check",     status:"Confirmed" },
-    { name:"Noor Al-Hashimi",   sid:"20250341", date:"Tomorrow",   time:"10:30 AM", doctor:"Dr. Hala",   reason:"Allergy follow-up",        status:"Confirmed" },
-    { name:"Hassan Qureshi",    sid:"20250288", date:"Tomorrow",   time:"2:15 PM",  doctor:"Dr. Khaled", reason:"Ankle injury follow-up",   status:"Confirmed" },
-    { name:"Omar Al-Mansoori",  sid:"20250122", date:"Oct 30",     time:"11:00 AM", doctor:"Dr. Khaled", reason:"MRI results review",       status:"Pending"   },
-    { name:"Sara Al-Shamsi",    sid:"20250488", date:"Oct 31",     time:"9:30 AM",  doctor:"Dr. Hala",   reason:"Annual check-up",          status:"Confirmed" },
-    { name:"Aisha Farhat",      sid:"20250155", date:"Nov 2",      time:"3:00 PM",  doctor:"Dr. Hala",   reason:"Vaccination · flu shot",   status:"Confirmed" },
-    { name:"Tariq Mansour",     sid:"20250199", date:"Nov 4",      time:"1:00 PM",  doctor:"Dr. Khaled", reason:"Sports physical exam",     status:"Confirmed" },
-    { name:"Layla Ibrahim",     sid:"20250377", date:"Nov 5",      time:"10:15 AM", doctor:"Dr. Hala",   reason:"Wrist follow-up",          status:"Confirmed" },
+  const SEED = [
+    { id:1, name:"Khalid Al-Falasi",  sid:"20250612", date:"Today",    time:"4:00 PM",  doctor:"Dr. Khaled", reason:"Pre-tournament check",   status:"Confirmed" },
+    { id:2, name:"Noor Al-Hashimi",   sid:"20250341", date:"Tomorrow", time:"10:30 AM", doctor:"Dr. Hala",   reason:"Allergy follow-up",      status:"Confirmed" },
+    { id:3, name:"Hassan Qureshi",    sid:"20250288", date:"Tomorrow", time:"2:15 PM",  doctor:"Dr. Khaled", reason:"Ankle injury follow-up", status:"Confirmed" },
+    { id:4, name:"Omar Al-Mansoori",  sid:"20250122", date:"Oct 30",   time:"11:00 AM", doctor:"Dr. Khaled", reason:"MRI results review",     status:"Pending"   },
+    { id:5, name:"Sara Al-Shamsi",    sid:"20250488", date:"Oct 31",   time:"9:30 AM",  doctor:"Dr. Hala",   reason:"Annual check-up",        status:"Confirmed" },
+    { id:6, name:"Aisha Farhat",      sid:"20250155", date:"Nov 2",    time:"3:00 PM",  doctor:"Dr. Hala",   reason:"Vaccination · flu shot", status:"Confirmed" },
+    { id:7, name:"Tariq Mansour",     sid:"20250199", date:"Nov 4",    time:"1:00 PM",  doctor:"Dr. Khaled", reason:"Sports physical exam",   status:"Confirmed" },
+    { id:8, name:"Layla Ibrahim",     sid:"20250377", date:"Nov 5",    time:"10:15 AM", doctor:"Dr. Hala",   reason:"Wrist follow-up",        status:"Confirmed" },
   ];
   const PAST = [
-    { name:"Maria Costa",  sid:"20250507", date:"Sep 30",  time:"2:00 PM", doctor:"Dr. Hala",   reason:"Cut on hand", status:"Completed" },
-    { name:"Yousef A.",    sid:"20250266", date:"Sep 22",  time:"4:30 PM", doctor:"Dr. Khaled", reason:"Concussion check", status:"Completed" },
+    { id:9,  name:"Maria Costa", sid:"20250507", date:"Sep 30", time:"2:00 PM", doctor:"Dr. Hala",   reason:"Cut on hand",     status:"Completed" },
+    { id:10, name:"Yousef A.",   sid:"20250266", date:"Sep 22", time:"4:30 PM", doctor:"Dr. Khaled", reason:"Concussion check", status:"Completed" },
   ];
-  const list = view === "upcoming" ? APPTS : PAST;
-  const STATUS_TONE = { Confirmed:"green", Pending:"amber", Completed:"slate", Cancelled:"red" };
+
+  const [appts, setAppts] = React.useState(SEED);
+  const [rescheduleTarget, setRescheduleTarget] = React.useState(null);
+  const toast = useToast();
+  const STATUS_TONE = { Confirmed:"green", Pending:"amber", Completed:"slate", Cancelled:"red", Rescheduled:"indigo" };
+
+  const cancelAppt = (id) => {
+    setAppts(prev => prev.map(a => a.id === id ? { ...a, status:"Cancelled" } : a));
+    toast.push({ text:"Appointment cancelled · patient notified", icon:Icon.X });
+  };
+  const saveReschedule = (newDate, newTime) => {
+    const label = newDate ? new Date(newDate).toLocaleDateString("en-GB", { day:"numeric", month:"short" }) : rescheduleTarget.date;
+    setAppts(prev => prev.map(a => a.id === rescheduleTarget.id ? { ...a, date:label, time:newTime, status:"Rescheduled" } : a));
+    toast.push({ text:`Rescheduled to ${label} at ${newTime}`, icon:Icon.Cal });
+    setRescheduleTarget(null);
+  };
+
+  const upcoming = appts.filter(a => a.status !== "Cancelled" || view === "upcoming");
+  const list = view === "upcoming" ? appts : PAST;
 
   return (
     <div className="p-6">
       <div className="flex items-center gap-3 mb-3">
-        <Segmented size="sm" value={view} onChange={setView} items={[{value:"upcoming",label:`Upcoming · ${APPTS.length}`},{value:"past",label:`Past · ${PAST.length}`}]}/>
+        <Segmented size="sm" value={view} onChange={setView} items={[{value:"upcoming",label:`Upcoming · ${appts.filter(a=>a.status!=="Cancelled").length}`},{value:"past",label:`Past · ${PAST.length}`}]}/>
         <span className="text-[11.5px] text-[var(--mute)] ml-auto">Both clinic doctors available · 2 rooms</span>
       </div>
       <Card className="p-0 overflow-hidden">
         <table className="w-full text-[12.5px]">
           <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
             <tr className="[&>th]:px-4 [&>th]:py-2 [&>th]:font-medium">
-              <th>Patient</th><th>Date</th><th>Time</th><th>Doctor</th><th>Reason</th><th>Status</th><th className="w-32"></th>
+              <th>Patient</th><th>Date</th><th>Time</th><th>Doctor</th><th>Reason</th><th>Status</th><th className="w-36"></th>
             </tr>
           </thead>
           <tbody>
-            {list.map((a,i) => (
-              <tr key={i} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
+            {list.map((a) => (
+              <tr key={a.id} className={cx("border-b hairline-2 last:border-0 hover:bg-[#fafafa]", a.status==="Cancelled" && "opacity-50")}>
                 <td className="px-4 py-2"><div className="flex items-center gap-2"><Avatar name={a.name} size={22}/><div><div className="font-medium text-[var(--ink)]">{a.name}</div><div className="text-[11px] text-[var(--mute)]">{a.sid}</div></div></div></td>
                 <td className="px-4 py-2 font-medium">{a.date}</td>
                 <td className="px-4 py-2 font-mono text-[var(--mute)]">{a.time}</td>
@@ -197,19 +254,22 @@ const AppointmentsTab = () => {
                 <td className="px-4 py-2">{a.reason}</td>
                 <td className="px-4 py-2"><Chip tone={STATUS_TONE[a.status]}>{a.status}</Chip></td>
                 <td className="px-4 py-2 text-right">
-                  {view==="upcoming" ? (
+                  {view === "upcoming" && a.status !== "Cancelled" ? (
                     <div className="flex items-center justify-end gap-1.5">
-                      <button className="text-[11.5px] text-[var(--accent)] hover:underline">Reschedule</button>
+                      <button onClick={()=>setRescheduleTarget(a)} className="text-[11.5px] text-[var(--accent)] hover:underline">Reschedule</button>
                       <span className="text-[var(--mute-2)]">·</span>
-                      <button className="text-[11.5px] text-[var(--bad)] hover:underline">Cancel</button>
+                      <button onClick={()=>cancelAppt(a.id)} className="text-[11.5px] text-[var(--bad)] hover:underline">Cancel</button>
                     </div>
-                  ) : <button className="text-[11.5px] text-[var(--accent)] hover:underline">View notes</button>}
+                  ) : view === "past" ? (
+                    <button className="text-[11.5px] text-[var(--accent)] hover:underline">View notes</button>
+                  ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </Card>
+      {rescheduleTarget && <RescheduleModal appt={rescheduleTarget} onSave={saveReschedule} onClose={()=>setRescheduleTarget(null)}/>}
     </div>
   );
 };

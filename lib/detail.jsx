@@ -5,6 +5,7 @@ const Detail = () => {
   const live = useActivity(activeActivity);
   const a = live || SAMA.ACTIVITIES.find(x => x.id === activeActivity) || SAMA.ACTIVITIES[0];
   const [tab, setTab] = React.useState("overview");
+  const [closeModalOpen, setCloseModalOpen] = React.useState(false);
   const m = SAMA.TYPE_META[a.type];
   const owner = SAMA.PEOPLE.find(p => p.id === a.owner);
   const toast = useToast();
@@ -18,17 +19,26 @@ const Detail = () => {
     actions.push(stageAction("Request changes", ()=>{requestChanges(a.id, "Please revise"); toast.push({text:"Sent back to draft"});}, Icon.Send, "outline"));
   }
   if (a.status === "Active") {
-    actions.push(stageAction("Mark complete", ()=>{markComplete(a.id); toast.push({text:"Completed — surveys + certificates auto-sent", icon:Icon.CheckCircle});}, Icon.CheckCircle, "default"));
+    actions.push(stageAction("Close activity", ()=>setCloseModalOpen(true), Icon.CheckCircle, "default"));
     actions.push(stageAction("Cancel", ()=>{cancel(a.id, "No longer needed"); toast.push({text:"Cancelled"});}, Icon.X, "outline"));
   }
 
-  const tabs = {
-    Event:   [["overview","Overview","Gauge"],["registrations","Registrations","ClipboardCheck"],["checkin","Check-in","Qr"],["logistics","Logistics","Pin"],["comms","Comms","Send"],["docs","Documents","Doc"],["feedback","Feedback","Star"],["activity","Activity log","Clock"]],
-    Program: [["overview","Overview","Gauge"],["sessions","Sessions","Cal"],["roster","Roster","Users"],["attendance","Attendance","ClipboardCheck"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
-    Volunteering: [["overview","Overview","Gauge"],["applicants","Applicants","Users"],["hours","Hours & certs","Medal"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
-    Task: [["overview","Overview","Gauge"],["subtasks","Subtasks","ClipboardCheck"],["activity","Activity log","Clock"]],
-    External: [["overview","Overview","Gauge"],["activity","Activity log","Clock"]],
+  /* Inject "Pending" tab for requires-approval activities */
+  const pendingCount = a.requiresApproval
+    ? (a.id === "a3" ? SAMA.PENDING_A3.length : a.id === "a26" ? SAMA.PENDING_A26.length : 3)
+    : 0;
+
+  const baseTabs = {
+    Event:       [["overview","Overview","Gauge"],["registrations","Registrations","ClipboardCheck"],["checkin","Check-in","Qr"],["logistics","Logistics","Pin"],["comms","Comms","Send"],["docs","Documents","Doc"],["feedback","Feedback","Star"],["activity","Activity log","Clock"]],
+    Program:     [["overview","Overview","Gauge"],["sessions","Sessions","Cal"],["roster","Roster","Users"],["attendance","Attendance","ClipboardCheck"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
+    Volunteering:[["overview","Overview","Gauge"],["applicants","Applicants","Users"],["hours","Hours & certs","Medal"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
+    Task:        [["overview","Overview","Gauge"],["subtasks","Subtasks","ClipboardCheck"],["activity","Activity log","Clock"]],
+    External:    [["overview","Overview","Gauge"],["activity","Activity log","Clock"]],
   }[a.type] || [];
+
+  const tabs = a.requiresApproval && pendingCount > 0
+    ? [baseTabs[0], ["pending","Pending","Flag"], ...baseTabs.slice(1)]
+    : baseTabs;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -89,6 +99,7 @@ const Detail = () => {
 
       <div className="flex-1 overflow-y-auto thin-scroll">
         {tab === "overview" && <OverviewTab a={a}/>}
+        {tab === "pending" && <PendingRegistrationsTab a={a}/>}
         {tab === "registrations" && <RegistrationsTab a={a}/>}
         {tab === "checkin" && <CheckinTab a={a}/>}
         {tab === "sessions" && <SessionsTab a={a}/>}
@@ -103,6 +114,7 @@ const Detail = () => {
         {tab === "subtasks" && <SubtasksTab a={a}/>}
         {tab === "activity" && <ActivityLogTab a={a}/>}
       </div>
+      {closeModalOpen && <CloseActivityModal a={a} onClose={()=>setCloseModalOpen(false)} onConfirm={()=>{markComplete(a.id); setCloseModalOpen(false); toast.push({text:"Activity closed · surveys dispatched · certificates generating", icon:Icon.CheckCircle});}}/>}
     </div>
   );
 };
@@ -1089,6 +1101,172 @@ const CertModal = ({ onClose, activityTitle }) => {
             </div>
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================ Pending Registrations Tab */
+const PendingRegistrationsTab = ({ a }) => {
+  const toast = useToast();
+
+  const SEED = a.id === "a3" ? SAMA.PENDING_A3
+    : a.id === "a26" ? SAMA.PENDING_A26
+    : [
+        { pid:"p4",  applied:"Oct 17, 2025", reason:"Interested in developing skills directly relevant to my major." },
+        { pid:"p9",  applied:"Oct 18, 2025", reason:"Want to contribute and gain practical hands-on experience." },
+        { pid:"p16", applied:"Oct 19, 2025", reason:"This activity aligns perfectly with my career goals." },
+      ];
+
+  const [pending, setPending] = React.useState(SEED);
+
+  const approve = pid => {
+    const person = SAMA.PEOPLE.find(p => p.id === pid);
+    setPending(prev => prev.filter(p => p.pid !== pid));
+    toast.push({ text:`${person?.name || "Applicant"} approved · confirmation email sent`, icon:Icon.CheckCircle });
+  };
+
+  const decline = pid => {
+    const person = SAMA.PEOPLE.find(p => p.id === pid);
+    setPending(prev => prev.filter(p => p.pid !== pid));
+    toast.push({ text:`${person?.name || "Applicant"} declined · notified by email` });
+  };
+
+  const approveAll = () => {
+    const count = pending.length;
+    setPending([]);
+    toast.push({ text:`${count} applicants approved · emails sent`, icon:Icon.CheckCircle });
+  };
+
+  if (pending.length === 0) {
+    return (
+      <div className="p-6 flex flex-col items-center justify-center py-24 text-center">
+        <div className="w-12 h-12 rounded-full bg-[var(--ok-wash)] flex items-center justify-center mb-3">
+          <Icon.CheckCircle width={22} height={22} className="text-[var(--ok)]"/>
+        </div>
+        <div className="text-[14px] font-semibold">All requests reviewed</div>
+        <div className="text-[12.5px] text-[var(--mute)] mt-1">No pending registration requests for this activity.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="text-[13.5px] font-semibold">Pending registration requests</div>
+          <div className="text-[11.5px] text-[var(--mute)] mt-0.5">{pending.length} awaiting review · approve or decline each applicant</div>
+        </div>
+        <Btn variant="outline" size="sm" icon={Icon.Check} onClick={approveAll}>Approve all</Btn>
+      </div>
+
+      <div className="space-y-3">
+        {pending.map(({ pid, applied, reason }) => {
+          const person = SAMA.PEOPLE.find(p => p.id === pid) || { name:"Applicant", sid:"—", dept:"—", year:"" };
+          return (
+            <Card key={pid} className="p-4">
+              <div className="flex items-start gap-3">
+                <Avatar name={person.name} size={36}/>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[13.5px] font-semibold">{person.name}</span>
+                    <span className="text-[11.5px] text-[var(--mute)] font-mono">{person.sid}</span>
+                    <Chip tone="slate">{person.dept}</Chip>
+                    {person.year && <Chip tone="indigo">{person.year}</Chip>}
+                  </div>
+                  <div className="text-[11.5px] text-[var(--mute)] mt-0.5 flex items-center gap-1">
+                    <Icon.Cal width={11} height={11}/> Applied {applied}
+                  </div>
+                  <div className="mt-2 p-3 rounded-[8px] bg-[#fafafa] border hairline-2">
+                    <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-1">Application statement</div>
+                    <div className="text-[12.5px] text-[var(--ink-2)] leading-relaxed">{reason}</div>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2 shrink-0 pt-1">
+                  <Btn variant="default" size="sm" icon={Icon.Check} onClick={() => approve(pid)}>Approve</Btn>
+                  <Btn variant="outline" size="sm" icon={Icon.X} onClick={() => decline(pid)}>Decline</Btn>
+                </div>
+              </div>
+            </Card>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
+
+/* ============================================================ Close Activity Modal */
+const CloseActivityModal = ({ a, onClose, onConfirm }) => {
+  const [items, setItems] = React.useState([
+    { id:"attendance", label:"Attendance recorded",       hint:"Session records are finalised",          checked:true,  required:true  },
+    { id:"budget",     label:"Budget reconciled",         hint:"All expenses logged and accounted for",  checked:true,  required:true  },
+    { id:"media",      label:"Photos / media uploaded",   hint:"Optional — adds to activity archive",    checked:false, required:false },
+    { id:"report",     label:"Post-event report filed",   hint:"Optional — attached to Documents tab",   checked:false, required:false },
+  ]);
+
+  const toggle = id => setItems(prev => prev.map(it => it.id === id ? { ...it, checked:!it.checked } : it));
+  const requiredDone = items.filter(it => it.required).every(it => it.checked);
+  const confirmedCount = a.registered || 47;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target===e.currentTarget && onClose()}>
+      <div className="bg-white rounded-[16px] shadow-float w-[520px] overflow-hidden">
+        <div className="px-6 py-4 border-b hairline flex items-center justify-between">
+          <div>
+            <div className="text-[15px] font-semibold">Close activity</div>
+            <div className="text-[11.5px] text-[var(--mute)] mt-0.5">{a.title}</div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-[7px] hover:bg-[#eeefef] flex items-center justify-center"><Icon.X width={14} height={14}/></button>
+        </div>
+
+        <div className="p-6 space-y-5">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Pre-close checklist</div>
+            <div className="space-y-2">
+              {items.map(it => (
+                <div key={it.id} onClick={() => toggle(it.id)} className={cx("flex items-center gap-3 p-3 rounded-[8px] border cursor-pointer transition-colors select-none", it.checked ? "border-[var(--ok)]/40 bg-[var(--ok-wash)]" : "border-[var(--line)] hover:border-[var(--mute-2)]")}>
+                  <div className={cx("w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors", it.checked ? "bg-[var(--ok)] border-[var(--ok)]" : "border-[var(--line)]")}>
+                    {it.checked && <Icon.Check width={10} height={10} className="text-white"/>}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[12.5px] font-medium">{it.label}</span>
+                      {!it.required && <span className="text-[10.5px] text-[var(--mute-2)]">optional</span>}
+                    </div>
+                    <div className="text-[11px] text-[var(--mute)]">{it.hint}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-[10px] bg-[var(--accent-wash)] border border-[var(--accent)]/20 p-4 space-y-2">
+            <div className="text-[12px] font-semibold text-[var(--ink)] flex items-center gap-1.5">
+              <Icon.Send width={13} height={13} className="text-[var(--accent)]"/>
+              What happens when you close
+            </div>
+            <div className="space-y-1.5 text-[12px] text-[var(--ink-2)]">
+              <div className="flex items-start gap-2"><Icon.CheckCircle width={13} height={13} className="text-[var(--ok)] mt-0.5 shrink-0"/>Feedback survey dispatched to {confirmedCount} confirmed attendees</div>
+              <div className="flex items-start gap-2"><Icon.Medal width={13} height={13} className="text-[var(--accent)] mt-0.5 shrink-0"/>Certificates generated after survey submission (or 48h auto-issue)</div>
+              <div className="flex items-start gap-2"><Icon.Shield width={13} height={13} className="text-[var(--mute-2)] mt-0.5 shrink-0"/>Activity archived · registration permanently locked</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-6 py-4 border-t hairline flex items-center justify-between">
+          <button onClick={onClose} className="text-[12.5px] text-[var(--mute)] hover:text-[var(--ink)]">Cancel</button>
+          <div className="flex items-center gap-2">
+            {!requiredDone && (
+              <span className="text-[11.5px] text-[var(--warn)] flex items-center gap-1.5">
+                <Icon.AlertTri width={13} height={13}/>Complete required items first
+              </span>
+            )}
+            <Btn variant="default" icon={Icon.CheckCircle} onClick={onConfirm}
+              className={cx(!requiredDone && "opacity-50 pointer-events-none")}>
+              Close activity
+            </Btn>
+          </div>
+        </div>
       </div>
     </div>
   );
