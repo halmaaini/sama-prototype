@@ -174,10 +174,11 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 - **VisitLog** (walk-in): id, student_id, staff_id, occurred_at, complaint, action_taken, referral, follow_up_needed (bool), notes. Visible to: health staff who logged + other health staff (configurable) + Manager.
 
 ### 4.8 Budget
-- **ActivityBudget**: id, activity_id, planned_amount (nullable — budget is optional), currency, approved_amount (set by Manager on approval; nullable until approved).
-- **BudgetTransaction**: id, activity_id, type {expense} (v1 — income and adjustment types deferred), amount, vendor/source, category {catering, venue, supplies, prizes, transport, other}, occurred_at, recorded_by, receipt_url (lightweight attachment stored on the transaction only — **not** linked to the Documents module), notes.
-- Derived: actual_spent (sum of all expense transactions), remaining (approved_amount − actual_spent), variance (approved_amount − actual_spent, signed).
-- **Constraints**: transactions can only be recorded once the activity is in Approved or Active state. Coordinator can record, edit, and delete their own transactions. Manager can record, edit, and delete any transaction (audit-logged).
+- **ActivityBudget**: id, activity_id, mode {simple, detailed}, planned_amount (in simple mode: entered directly; in detailed mode: auto-summed from line items), student_contribution (in simple mode: optional manual entry for the portion expected from students; in detailed mode: auto-summed from student-funded line items), currency, approved_amount (set by Manager on approval; nullable until approved).
+- **BudgetLineItem** (only used in detailed mode): id, activity_budget_id, description, total_amount, funded_by {university, student, split}, university_amount (nullable — computed if split), student_amount (nullable — computed if split), sort_order.
+- **BudgetTransaction**: id, activity_id, type {expense, income}, amount, vendor/source, category {catering, venue, supplies, prizes, transport, other}, occurred_at, recorded_by, source {coordinator, system} (income transactions are system-generated from the finance integration — not manually entered), receipt_url (lightweight attachment, separate from Documents module), notes.
+- Derived: actual_spent (sum of expense transactions), actual_revenue (sum of income transactions, sourced from finance system), remaining (approved_amount − actual_spent), variance (approved_amount − actual_spent, signed), net_university_cost (approved_amount − actual_revenue).
+- **Constraints**: transactions can only be recorded once the activity is in Approved or Active state. Coordinator can record, edit, and delete their own expense transactions. Income transactions are system-generated and cannot be manually edited or deleted by any user. Manager can record, edit, and delete coordinator-entered expense transactions (audit-logged).
 
 ### 4.9 Notifications
 - **Notification**: id, recipient_user_id, channel {inapp, email, push}, template_key, payload (JSON), state {pending, sent, failed, read}, created_at, sent_at, read_at.
@@ -266,7 +267,13 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - Coordinator opens "New Activity", picks type, fills fields. Required: title, type, description, start/end, location, capacity, registration window, eligibility, completion threshold (auto-defaulted by type), cancellation policy.
 - Program/Workshop with multiple sessions: add sessions inline with their own date/time/location/employee. Optionally enable per-session sign-up and per-session capacity (see §7.4).
 - Activity may be linked to a sponsoring **Club**.
-- Activity may have an optional **Budget**: Coordinator enters a single planned amount (no line items at creation — transactions recorded post-approval are the detail). Budget is optional; activities with no budget set behave as zero-budget. All activity types (Event, Program, Volunteering, Task, External) have a Budget tab, but only activities in Approved or Active state allow transaction recording. For Club-organised activities: the Club Leader enters the planned amount at creation; the Manager sets the approved amount at approval (same pattern as the activity approval itself).
+- Activity may have an optional **Budget**. Two modes are available at creation — coordinator chooses:
+  - **Simple mode**: enter a single planned total amount and, optionally, the portion expected from students (e.g. "Total: AED 2,700 · Student contribution: AED 1,200"). Suitable for straightforward activities.
+  - **Detailed mode**: enter cost line items, each tagged with who pays — University, Student, or Split (with percentages). The planned total and student contribution are auto-summed. Suitable for co-funded activities (e.g. trips, external events where students pay a portion).
+  - Budget is optional; activities with no budget entered behave as zero-budget.
+  - All activity types have a Budget tab; only activities in Approved or Active state allow transaction recording.
+  - **Registration fee validation**: if a detailed budget has student-funded line items, the system compares the implied per-student cost against the registration fee set on the activity. If they do not match, a warning is shown: *"Budget shows AED 60/student but registration fee is set to AED 50 — update one to keep them aligned."* The fields remain independent; neither auto-updates the other.
+  - For Club-organised activities: the Club Leader enters the planned amount at creation; the Manager sets the approved amount at approval (same pattern as the activity approval itself).
 - Activity may carry **Prerequisites** (must have Completed activity X).
 - Activity may carry **Eligibility** (year, program, gender, custom).
 - File **Attachments** (poster, agenda, consent forms, etc.).
@@ -671,52 +678,77 @@ For each welfare role and each welfare module, the matrix grants one of:
 
 ### 12.1 Scope & availability
 - All activity types (Event, Program, Volunteering, Task, External) have a **Budget tab** in their detail view.
-- Budget is **optional** at creation. An activity with no budget entered behaves as zero-budget; the Budget tab is still visible but shows an empty state prompting the Coordinator to add a planned amount.
-- Transaction recording is **locked until the activity reaches Approved or Active state**. A Coordinator cannot log expenses against a Draft or Submitted activity.
+- Budget is **optional** at creation. An activity with no budget entered behaves as zero-budget; the Budget tab is still visible and always shows the four stat cards (Planned, Approved, Spent, Remaining) — unset values display as "—" and Spent shows AED 0. An inline prompt invites the Coordinator to add a planned amount.
+- Transaction recording is **locked until the activity reaches Approved or Active state**.
 
-### 12.2 Planned vs. actual
-- Each activity has a **planned amount** (entered at creation, optional) and an **approved amount** (set by the Manager on approval — may equal the planned amount or be reduced; never increased at approval time without a change request).
-- Both the planned amount and the approved amount are **visible to the Coordinator** owning the activity.
-- The system continuously computes: `actual_spent` (sum of all recorded expense transactions), `remaining = approved_amount − actual_spent`, `variance = approved_amount − actual_spent` (positive = underspent, negative = overspent).
-- The Budget tab header always displays four stat cards: **Planned · Approved · Spent · Remaining**. When no budget has been set, Planned and Approved show a dash (—) and Spent shows AED 0. The cards are always present — there is no blank empty-state in place of them. An inline prompt below the cards invites the Coordinator to add a planned amount if none exists.
+### 12.2 Budget modes
+Two modes are available; Coordinator selects at creation (can switch to detailed before submission):
 
-### 12.3 Transactions (v1: expense type only)
-- **Type**: expense only in v1. Income and adjustment types are deferred to v2.
-- **Fields**: amount, category {Catering, Venue, Supplies, Prizes, Transport, Other}, vendor/source, date occurred, receipt (lightweight file attachment stored on the transaction — **not** cross-listed in the Documents tab), notes (optional).
-- **Who can record**: Coordinator (own activity), Manager (any activity), Club Leader (own club's activities).
-- **Edit & delete**: Coordinator can edit and delete their own transactions. Manager can edit and delete any transaction. All edits and deletions are audit-logged.
-- **Receipts**: each transaction can have one receipt file attached. This is a lightweight attachment specific to the transaction; it is separate from the Documents module and does not inherit Documents tab visibility rules. Receipt files are visible to the same roles that can see the transaction (Coordinator + Manager for that activity).
+**Simple mode** — a single planned total amount, with an optional `student_contribution` field for activities where students pay a portion. Suitable for activities with straightforward, fully university-funded spend.
 
-### 12.4 Budget warnings & alerts
-- When `actual_spent` reaches **80% of approved_amount**, the system:
-  1. Shows a visual warning indicator in the Budget tab (amber bar, warning chip on the tab label).
-  2. Sends an in-app notification to the Coordinator.
-  3. Sends an in-app notification to the Manager.
-- When `actual_spent` **exceeds approved_amount** (>100%), the indicator turns red and a separate "over budget" notification fires. The system does not block further transaction recording — it warns only.
+**Detailed mode** — cost is broken into named line items, each tagged with who funds it:
+- **University** — fully covered by the department.
+- **Student** — fully covered by student registration fees.
+- **Split** — a percentage split between university and students (e.g. 40% uni / 60% student). The system computes each party's share.
 
-### 12.5 Budget change requests
-- To increase the approved amount after approval, the Coordinator submits a **Budget change request** specifying the new target amount and a reason.
-- Decreasing the approved amount does not require a change request — Coordinator can reduce it directly (audit-logged).
-- The change request is surfaced in **two places simultaneously**:
-  1. **Approvals inbox** — appears as a new item type alongside activity approvals. Manager sees it in the same queue.
-  2. **Budget tab (inline)** — the activity's Budget tab shows a pending change request banner with the requested amount, reason, and Approve / Reject actions.
-- On Manager approval: `approved_amount` updates immediately; Coordinator receives an in-app notification.
-- On Manager rejection: Coordinator notified with the rejection reason; approved amount unchanged.
-- A Coordinator may have at most one pending change request per activity at a time.
+The planned total and student contribution figure are auto-summed from line items in detailed mode.
 
-### 12.6 Club-organised activity budgets
-- When an activity is created by a Club Leader, the Club Leader enters the **planned amount** (optional, same as a Coordinator would).
-- The **approved amount** is set by the Manager on activity approval — same workflow as any other activity.
-- Budget change requests from Club Leaders follow the same path as those from Coordinators.
-- Club Leaders see the full Budget tab (planned, approved, spent, remaining, transactions) for their own club's activities only. They cannot see budget data for other clubs' or department-owned activities.
+*Example:*
+| Line item | Total | Funded by | Uni | Student |
+|---|---|---|---|---|
+| Water park entry (×20) | AED 2,000 | Split 40/60 | AED 800 | AED 1,200 |
+| Transport | AED 500 | University | AED 500 | — |
+| Supervisor | AED 200 | University | AED 200 | — |
+| **Total** | **AED 2,700** | | **AED 1,500** | **AED 1,200** |
 
-### 12.7 Reporting
-- **Per-activity** (visible in Budget tab): planned vs. actual, breakdown by category, transaction list, variance.
-- **Department-wide** (visible in Reports module): total spend by month, by activity type, by club, by Coordinator. Over-budget flags. Variance reports for Manager.
-- Budget and finance reports can be exported as Excel (.xlsx) from the Reports module.
+### 12.3 Planned vs. actual
+- Each activity has a **planned amount** and an **approved amount** (set by Manager on approval — may equal planned or be reduced). Both are visible to the Coordinator.
+- The Budget tab header always shows six stat cards: **Planned · Approved · Spent · Remaining · Expected revenue · Received revenue**.
+- System computes: `actual_spent`, `remaining = approved − actual_spent`, `variance`, `net_university_cost = approved − actual_revenue`.
 
-### 12.8 Currency
-- Single currency in v1 (configurable at deployment — default AED for UAE deployments). Multi-currency deferred to v2.
+### 12.4 Transactions
+**Expense transactions** (coordinator-entered):
+- Fields: amount, category {Catering, Venue, Supplies, Prizes, Transport, Other}, vendor/source, date, receipt (lightweight attachment — separate from Documents module), notes.
+- Who can record: Coordinator (own), Club Leader (own club), Manager (any). All edits/deletions audit-logged.
+- Coordinator can edit and delete their own entries; Manager can edit/delete any.
+
+**Income transactions** (system-generated only):
+- Created automatically by the finance integration (§7.8) when student payments are confirmed. Not manually enterable by any user.
+- Fields: amount, registration_id (reference), paid_at, transaction_id (from finance system).
+- Visible in the Revenue section of the Budget tab, not in the expense transaction list.
+
+### 12.5 Revenue tracking
+- The **Revenue section** in the Budget tab reads student payment status directly from the finance system (§7.8).
+- Displays: Expected revenue (student-funded total from budget) · Received (sum of `paid` fee_status registrations) · Pending (sum of `pending` fee_status registrations) · Refunded.
+- **Registration fee validation**: in detailed mode, if the student-funded per-head amount implied by line items does not match the registration fee set on the activity, the system shows a persistent warning: *"Budget shows AED 60/student but registration fee is set to AED 50 — update one to keep them aligned."* Both fields remain independent; neither auto-updates the other.
+- For activities with no student-funded lines, the Revenue section shows "No student fees for this activity."
+
+### 12.6 Budget warnings & alerts
+- When `actual_spent` reaches **80% of approved_amount**: visual warning in Budget tab (amber) + in-app notification to Coordinator and Manager.
+- When `actual_spent` **exceeds approved_amount**: indicator turns red, separate over-budget alert fires. Recording is not blocked.
+
+### 12.7 Budget change requests
+- To **increase** approved amount: Coordinator submits a change request (new target + reason). Decreasing is free (audit-logged, no request needed).
+- Change request surfaces in **two places**: Approvals inbox (same queue as activity approvals) + inline banner in the Budget tab.
+- On approval: `approved_amount` updates immediately, Coordinator notified. On rejection: Coordinator notified with reason, amount unchanged.
+- At most one pending change request per activity at a time.
+
+### 12.8 Purchase request / PRF workflow (v1 note, v2 full implementation)
+- In the current department process, spending requires a **Purchase Request Form (PRF)** routed through: Coordinator → Manager → Procurement → Finance → President sign-off.
+- **v1**: SAMA does not implement the multi-step PRF chain. For any activity with a budget set, the Budget tab displays an informational banner: *"A Purchase Request Form (PRF) is required before spend begins. Submit via the standard process."* This makes the requirement visible without enforcing it in the system.
+- **v2**: Full PRF workflow — Coordinator fills the PRF inside SAMA using the budget line items as the basis; routed for approvals; linked to the activity. Tracked status (Submitted / Approved / Rejected) visible in the Budget tab.
+
+### 12.9 Club-organised activity budgets
+- Club Leader enters planned amount (simple or detailed mode) at creation. Manager sets approved amount at approval.
+- Budget change requests from Club Leaders follow the same path as Coordinators.
+- Club Leaders see full Budget tab for their own club's activities only.
+
+### 12.10 Reporting
+- **Per-activity** (Budget tab): planned vs. actual, line item breakdown, transaction list, revenue section, variance, net university cost.
+- **Department-wide** (Reports module): total spend by month, by activity type, by club, by Coordinator. Over-budget flags. Variance reports. Exportable as Excel (.xlsx).
+
+### 12.11 Currency
+- Single currency in v1 (configurable at deployment — default AED for UAE deployments). Multi-currency deferred.
 
 ---
 
@@ -1176,19 +1208,21 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-W4**: Every read of a welfare note/log is audit-logged.
 
 ### Budget
-- **BR-B1**: All activity types have a Budget tab. Budget (planned amount) is optional at creation; activities with no budget behave as zero-budget.
-- **BR-B2**: Both the planned amount and the approved amount are visible to the Coordinator who owns the activity.
-- **BR-B3**: Transaction recording is locked until the activity reaches Approved or Active state.
-- **BR-B4**: v1 supports expense transactions only. Income and adjustment types are deferred.
-- **BR-B5**: Coordinator can record, edit, and delete their own transactions. Manager can record, edit, and delete any transaction. All mutations are audit-logged.
-- **BR-B6**: Transaction receipts are lightweight file attachments stored on the transaction. They are not linked to or cross-listed in the Documents module.
-- **BR-B7**: When actual_spent reaches 80% of approved_amount, the system warns the Coordinator (in-app notification + visual indicator in Budget tab) and notifies the Manager. When actual_spent exceeds approved_amount, a separate over-budget alert fires. Recording is not blocked.
-- **BR-B8**: Increasing approved_amount post-approval requires a Budget change request submitted by the Coordinator (or Club Leader). Decreasing is free (no request needed, audit-logged).
-- **BR-B9**: A Budget change request surfaces in two places: the Approvals inbox (as a new item type) and inline in the activity's Budget tab. Manager resolves it in either location.
-- **BR-B10**: At most one pending Budget change request per activity at a time.
-- **BR-B11**: For Club-organised activities, the Club Leader enters the planned amount at creation. The Manager sets the approved amount at approval. Change requests from Club Leaders follow the same path as those from Coordinators.
-- **BR-B12**: Decreasing the approved amount below actual_spent is allowed (creates an over-budget state and triggers the alert) but not blocked by the system.
-- **BR-B13**: The Budget tab always renders the four stat cards (Planned, Approved, Spent, Remaining) regardless of whether a budget has been set. Unset values display as "—"; Spent always shows a numeric value (AED 0 when no transactions exist). No blank empty-state replaces the cards.
+- **BR-B1**: All activity types have a Budget tab. Budget is optional at creation; activities with no budget set behave as zero-budget.
+- **BR-B2**: Two budget modes: simple (single planned total + optional student_contribution) and detailed (named line items each tagged University / Student / Split). Coordinator chooses at creation.
+- **BR-B3**: Both the planned amount and the approved amount are visible to the Coordinator who owns the activity.
+- **BR-B4**: Transaction recording is locked until the activity reaches Approved or Active state.
+- **BR-B5**: Coordinator can record, edit, and delete their own expense transactions. Manager can record, edit, and delete any expense transaction. Income transactions are system-generated (finance integration) and cannot be manually created or edited by any user. All mutations are audit-logged.
+- **BR-B6**: Transaction receipts are lightweight file attachments stored on the transaction only — not linked to the Documents module.
+- **BR-B7**: When actual_spent reaches 80% of approved_amount: visual warning in Budget tab + in-app notification to Coordinator and Manager. When actual_spent exceeds approved_amount: red over-budget alert. Recording is never blocked.
+- **BR-B8**: In detailed mode, if the student-funded per-head amount implied by line items does not match the registration fee on the activity, a persistent warning is shown. The fields remain independent.
+- **BR-B9**: Increasing approved_amount post-approval requires a Budget change request. Decreasing is free (audit-logged, no request needed).
+- **BR-B10**: A Budget change request surfaces in both the Approvals inbox and inline in the Budget tab. Manager resolves it in either location.
+- **BR-B11**: At most one pending Budget change request per activity at a time.
+- **BR-B12**: For Club-organised activities: Club Leader enters planned amount; Manager sets approved amount at approval. Change requests from Club Leaders follow the same path as Coordinators.
+- **BR-B13**: Decreasing approved_amount below actual_spent is allowed but triggers the over-budget alert.
+- **BR-B14**: The Budget tab always shows stat cards (Planned, Approved, Spent, Remaining, Expected revenue, Received revenue). Unset values display as "—"; Spent and Received show AED 0 when no transactions exist.
+- **BR-B15**: v1 displays a PRF reminder banner on any activity with a budget. Full PRF workflow is deferred to v2.
 
 ### Notifications
 - **BR-N1**: Critical notifications (activity change, cancellation, waitlist promotion) cannot be opted out.
@@ -1355,13 +1389,22 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - *Coordinator can see both planned and approved amounts.*
 - *Transaction receipts are separate from the Documents module — lightweight attachment on the transaction only.*
 - *Club-organised activities: Club Leader enters planned amount; Manager sets approved amount at approval.*
-- *Budget tab empty state: stat cards (Planned, Approved, Spent, Remaining) always shown even when no budget is set — unset values display as "—", Spent shows AED 0. No blank empty-state.*)
+- *Budget tab empty state: stat cards always shown even when no budget is set — unset values display as "—", Spent shows AED 0. No blank empty-state.)*
+
+*(Resolved round 25 — Co-funded budget model, now reflected in §4.8, §6.1, §12, §16:*
+- *Two budget modes: simple (single total) and detailed (line items with University / Student / Split funding tags). Coordinator chooses at creation.*
+- *Budget tab gains a Revenue section: Expected revenue vs. Received vs. Pending, sourced from the finance system (§7.8). Not manually entered.*
+- *Income transactions are system-generated by the finance integration — not coordinator-enterable. Adjustment type remains deferred.*
+- *Registration fee validation: in detailed mode, if student-funded per-head total mismatches the activity's registration fee, system shows a persistent warning. Fields remain independent.*
+- *PRF (Purchase Request Form) workflow is deferred to v2. v1 shows an informational banner on budgeted activities reminding staff a PRF is required via the standard process.*
+- *Budget tab stat cards expanded to six: Planned, Approved, Spent, Remaining, Expected revenue, Received revenue.)*
 
 ### 18.5 Decisions deferred
 - **Microsoft SSO**: deferred to a later phase. Local auth in v1.
 - **TenantAdmin & multi-tenant provisioning**: schema-ready; UX/operations not designed for v1.
 - **v2 modules** (Alumni, Colleges, etc.): module catalog is open-ended; specific module scopes belong in their own PRDs.
 - **Finance Integration Spec**: separate document required before paid-activity build (see §18.3).
+- **PRF workflow** (Purchase Request Form): full multi-step chain (Coordinator → Manager → Procurement → Finance → President) is a v2 feature. v1 shows a reminder banner only. See §12.8.
 
 ### 18.6 Architectural assumptions to validate
 - **Single Manager in v1**, but the schema supports multiple Managers and per-department role assignments via `DepartmentRole` (§4.0). No retrofit needed when a second Manager joins.
