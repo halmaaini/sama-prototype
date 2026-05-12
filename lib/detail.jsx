@@ -29,11 +29,11 @@ const Detail = () => {
     : 0;
 
   const baseTabs = {
-    Event:       [["overview","Overview","Gauge"],["registrations","Registrations","ClipboardCheck"],["checkin","Check-in","Qr"],["logistics","Logistics","Pin"],["comms","Comms","Send"],["docs","Documents","Doc"],["feedback","Feedback","Star"],["activity","Activity log","Clock"]],
-    Program:     [["overview","Overview","Gauge"],["sessions","Sessions","Cal"],["roster","Roster","Users"],["attendance","Attendance","ClipboardCheck"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
-    Volunteering:[["overview","Overview","Gauge"],["applicants","Applicants","Users"],["hours","Hours & certs","Medal"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
-    Task:        [["overview","Overview","Gauge"],["subtasks","Subtasks","ClipboardCheck"],["activity","Activity log","Clock"]],
-    External:    [["overview","Overview","Gauge"],["activity","Activity log","Clock"]],
+    Event:       [["overview","Overview","Gauge"],["registrations","Registrations","ClipboardCheck"],["checkin","Check-in","Qr"],["logistics","Logistics","Pin"],["budget","Budget","Chart"],["comms","Comms","Send"],["docs","Documents","Doc"],["feedback","Feedback","Star"],["activity","Activity log","Clock"]],
+    Program:     [["overview","Overview","Gauge"],["sessions","Sessions","Cal"],["roster","Roster","Users"],["attendance","Attendance","ClipboardCheck"],["budget","Budget","Chart"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
+    Volunteering:[["overview","Overview","Gauge"],["applicants","Applicants","Users"],["hours","Hours & certs","Medal"],["budget","Budget","Chart"],["comms","Comms","Send"],["activity","Activity log","Clock"]],
+    Task:        [["overview","Overview","Gauge"],["subtasks","Subtasks","ClipboardCheck"],["budget","Budget","Chart"],["activity","Activity log","Clock"]],
+    External:    [["overview","Overview","Gauge"],["budget","Budget","Chart"],["activity","Activity log","Clock"]],
   }[a.type] || [];
 
   const tabs = a.requiresApproval && pendingCount > 0
@@ -112,6 +112,7 @@ const Detail = () => {
         {tab === "roster" && <RosterTab a={a}/>}
         {tab === "attendance" && <AttendanceTab a={a}/>}
         {tab === "subtasks" && <SubtasksTab a={a}/>}
+        {tab === "budget" && <BudgetTab a={a}/>}
         {tab === "activity" && <ActivityLogTab a={a}/>}
       </div>
       {closeModalOpen && <CloseActivityModal a={a} onClose={()=>setCloseModalOpen(false)} onConfirm={()=>{markComplete(a.id); setCloseModalOpen(false); toast.push({text:"Activity closed · surveys dispatched · certificates generating", icon:Icon.CheckCircle});}}/>}

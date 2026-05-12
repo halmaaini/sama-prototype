@@ -233,4 +233,101 @@ const CLUBS = [
   { id:"cl6", name:"Volunteer Circle",        members:210, leader:"Mariam Al-Suwaidi",  leaderId:"c6", color:"#495266", joined:true,  category:"Service",  status:"Active",  founded:"2012", advisor:"Ms. Reem Abdulla",   meeting:"Sundays 4:00 PM",    room:"Community Hall",     email:"volunteer@sama.ae",   description:"Community service and outreach — beach cleanups, school tutoring, hospital visits, Red Crescent partnerships.", pendingRequests:2 },
 ];
 
-window.SAMA = { TYPE_META, STATUS_META, CATEGORIES, VENUES, PEOPLE, ACTIVITIES, REGS_A1, PENDING_A3, PENDING_A26, SESSIONS_A7, DOCS_A1, TRANSPORT_A3, NOTIFS, CMD_ITEMS, SEMESTERS, CLUBS };
+/* ── Budget data ──────────────────────────────────────────────────────────── */
+
+const BUDGETS = {
+  /* a1: Freshman Orientation — detailed mode, fully university-funded, 55% spent */
+  a1: {
+    mode: "detailed",
+    plannedAmount: 5500,
+    approvedAmount: 5500,
+    studentContribution: 0,
+    currency: "AED",
+    lineItems: [
+      { id:"li1", description:"Venue & AV setup",     totalAmount:800,  fundedBy:"university" },
+      { id:"li2", description:"Catering",              totalAmount:2100, fundedBy:"university" },
+      { id:"li3", description:"Speaker honorarium",    totalAmount:1200, fundedBy:"university" },
+      { id:"li4", description:"Printing & banners",    totalAmount:400,  fundedBy:"university" },
+      { id:"li5", description:"Swag & delegate kits",  totalAmount:1000, fundedBy:"university" },
+    ],
+    pendingChangeRequest: null,
+  },
+  /* a24: Alumni Networking Night — detailed, student-funded kits via fee:50, all revenue received */
+  a24: {
+    mode: "detailed",
+    plannedAmount: 21850,
+    approvedAmount: 21000,
+    studentContribution: 14350,
+    currency: "AED",
+    lineItems: [
+      { id:"li10", description:"Outdoor setup & tents",       totalAmount:2000,  fundedBy:"university" },
+      { id:"li11", description:"Catering — networking dinner", totalAmount:4000,  fundedBy:"university" },
+      { id:"li12", description:"Entertainment & AV",           totalAmount:1000,  fundedBy:"university" },
+      { id:"li13", description:"Registration kits (287 units)",totalAmount:14350, fundedBy:"student" },
+      { id:"li14", description:"Photography",                  totalAmount:500,   fundedBy:"university" },
+    ],
+    pendingChangeRequest: null,
+  },
+  /* a28: Entrepreneurship Masterclass — simple mode, pending approval, no transactions yet */
+  a28: {
+    mode: "simple",
+    plannedAmount: 3000,
+    approvedAmount: null,
+    studentContribution: 1250,
+    currency: "AED",
+    lineItems: [],
+    pendingChangeRequest: null,
+  },
+  /* a30: Mock UN — detailed, fee:30 mismatch with student lines, pending change request */
+  a30: {
+    mode: "detailed",
+    plannedAmount: 9800,
+    approvedAmount: 9000,
+    studentContribution: 2400,
+    currency: "AED",
+    lineItems: [
+      { id:"li20", description:"Conference hall hire (2 days)", totalAmount:1500, fundedBy:"university" },
+      { id:"li21", description:"Catering for delegates",         totalAmount:3000, fundedBy:"university" },
+      { id:"li22", description:"Delegate materials",             totalAmount:1800, fundedBy:"split", uniPct:50, studentPct:50 },
+      { id:"li23", description:"Registration kits",              totalAmount:1500, fundedBy:"student" },
+      { id:"li24", description:"Guest judges & speakers",        totalAmount:2000, fundedBy:"university" },
+    ],
+    pendingChangeRequest: { requestedAmount:10500, reason:"Guest speaker fee increased — external agency quoted higher", submittedBy:"s4", submittedAt:"2 days ago" },
+  },
+  /* a36: Badminton Tournament — simple mode, near 80% spend threshold */
+  a36: {
+    mode: "simple",
+    plannedAmount: 1500,
+    approvedAmount: 1200,
+    studentContribution: 0,
+    currency: "AED",
+    lineItems: [],
+    pendingChangeRequest: null,
+  },
+};
+
+const BUDGET_TXN = {
+  a1: [
+    { id:"bt1", type:"expense", amount:800,  category:"Venue",    vendor:"Campus Facilities",  occurredAt:"Sep 5, 2025",  recordedBy:"s1", source:"coordinator", notes:"Venue booking & AV deposit" },
+    { id:"bt2", type:"expense", amount:1050, category:"Catering", vendor:"Al Rawabi Catering", occurredAt:"Sep 7, 2025",  recordedBy:"s1", source:"coordinator", notes:"50% deposit — balance due on day" },
+    { id:"bt3", type:"expense", amount:1200, category:"Other",    vendor:"Dr. Sarah Al-Yafei",  occurredAt:"Sep 8, 2025",  recordedBy:"s1", source:"coordinator", notes:"Keynote speaker honorarium" },
+  ],
+  a24: [
+    { id:"bt10", type:"expense", amount:2000,  category:"Venue",    vendor:"Outdoor Events Co.",  occurredAt:"Nov 5, 2025",  recordedBy:"s3", source:"coordinator", notes:"Setup & tent hire" },
+    { id:"bt11", type:"expense", amount:4000,  category:"Catering", vendor:"Grand Catering LLC",  occurredAt:"Nov 6, 2025",  recordedBy:"s3", source:"coordinator", notes:"Full catering contract" },
+    { id:"bt12", type:"expense", amount:350,   category:"Other",    vendor:"Print Hub",           occurredAt:"Nov 8, 2025",  recordedBy:"s3", source:"coordinator", notes:"Name badges & signage" },
+    { id:"bt13", type:"income",  amount:14350, vendor:"Finance system", occurredAt:"Nov 13, 2025", source:"system", notes:"287 × AED 50 registration fees — all paid" },
+  ],
+  a30: [
+    { id:"bt20", type:"expense", amount:1500, category:"Venue",    vendor:"Campus Facilities",   occurredAt:"Oct 28, 2025", recordedBy:"s4", source:"coordinator", notes:"Conference hall — 2 days" },
+    { id:"bt21", type:"expense", amount:1200, category:"Catering", vendor:"Al Rawabi Catering",  occurredAt:"Oct 29, 2025", recordedBy:"s4", source:"coordinator", notes:"Day 1 catering deposit" },
+    { id:"bt22", type:"income",  amount:990,  vendor:"Finance system", occurredAt:"Oct 20, 2025", source:"system", notes:"33 × AED 30 (33 of 165 registered have paid)" },
+  ],
+  a36: [
+    { id:"bt30", type:"expense", amount:400, category:"Supplies", vendor:"Sports Supplies UAE",  occurredAt:"Nov 20, 2025", recordedBy:"s2", source:"coordinator", notes:"Shuttlecocks, nets, strings" },
+    { id:"bt31", type:"expense", amount:200, category:"Prizes",   vendor:"Trophy Shop Dubai",    occurredAt:"Nov 22, 2025", recordedBy:"s2", source:"coordinator", notes:"Trophies & medals" },
+    { id:"bt32", type:"expense", amount:360, category:"Catering", vendor:"Refreshments Direct",  occurredAt:"Nov 25, 2025", recordedBy:"s2", source:"coordinator", notes:"Water & snacks for players" },
+  ],
+};
+
+window.SAMA = { TYPE_META, STATUS_META, CATEGORIES, VENUES, PEOPLE, ACTIVITIES, REGS_A1, PENDING_A3, PENDING_A26, SESSIONS_A7, DOCS_A1, TRANSPORT_A3, NOTIFS, CMD_ITEMS, SEMESTERS, CLUBS, BUDGETS, BUDGET_TXN };
