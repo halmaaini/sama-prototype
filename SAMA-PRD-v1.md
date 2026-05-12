@@ -50,57 +50,79 @@ A web + PWA platform for a university Student Activities & Welfare department to
 
 ## 3. Roles & permissions
 
-Four roles. Permissions are role-based; data scoping is per-tenant + per-department.
+**Roles are additive** — a staff member can hold multiple roles simultaneously (e.g. Coordinator + Nurse, or Coordinator + Club Coordinator for two clubs). Permissions from each role are **module-scoped**: a Nurse's access to patient records activates only inside the Health module; a Coordinator's approval authority activates only in the Activities module. **Manager is the sole exception** — it is a superset role with full access across all modules and all data in the department, with no module boundary. Roles are assigned by the Manager from the Settings page; no other role can assign roles.
 
 > **v1 simplification**: with one department, "department-scoped" effectively means "system-wide". The schema and authorization checks are designed for multi-department from day one (see §4.0).
 
 ### 3.1 Role summary
 
-| Role | Scope | Primary responsibilities |
-|------|-------|--------------------------|
-| **Manager** | One department (assignable to multiple departments later) | Strategy, approvals, budget oversight, reports, role assignment within their department, sees all data including welfare. |
-| **Coordinator** | Own activities + assigned clubs within their department | Plan, submit for approval, run, edit, close activities; manage club rosters. |
-| **Employee** | Assigned activities/services only within their department | Run sessions, take attendance, conduct counseling/health appointments, log visits. |
-| **Student** | Tenant-scoped (cross-department within the same university) | Discover, register, cancel, attend, view history, download certificates, book welfare appointments — across any department's offerings. |
+| Role | Module scope | Primary responsibilities |
+|------|-------------|--------------------------|
+| **Manager** | All modules, department-wide | Superset of all roles. Strategy, final approvals on all activities and club requests, budget oversight, reports, role assignment, sees all data including welfare. |
+| **Coordinator** | Activities module · assigned activities & clubs | Plan, submit for approval, run, edit, close activities; manage rosters for assigned clubs. |
+| **Club Coordinator** | Activities module · assigned clubs only | First-step approver for club-created activity requests; club roster and budget management for assigned clubs. Assigned per-club by Manager (many:many — a club can have multiple Club Coordinators; a Coordinator can be Club Coordinator for multiple clubs). |
+| **Club Advisor** | Assigned clubs · read-only observer | Academic or professional oversight of assigned clubs. Receives FYI notifications on key events. No approval authority in v1. Can be internal staff or external (faculty, external professionals). External Club Advisor accounts are a v2 feature. |
+| **Employee** | Assigned services/activities only | Run sessions, take attendance, conduct counseling or health appointments, log walk-in visits. |
+| **Nurse** | Health module only | Log visits, manage appointment slots, view and update health records for assigned students. Subset of Employee capabilities, module-scoped. |
+| **Counselor** | Counseling module only | Manage appointment slots, conduct sessions, record notes, view referrals. Subset of Employee capabilities, module-scoped. |
+| **Club Leader** | Own club only | Create and submit club-sponsored activity requests; enter planned budget; manage own club's activity submissions. A student role granted by the Manager or Club Coordinator. |
+| **Student** | Tenant-scoped (self-service) | Discover, register, cancel, attend, view history, download certificates, book welfare appointments — across any department's offerings. |
 | *(future)* **TenantAdmin** | Tenant-wide | Provisions departments, enables/disables modules per department, manages tenant-level settings. Out of scope for v1; provisioning is install-time. |
 
 ### 3.2 Permission matrix (high level)
 
-| Capability | Manager | Coordinator | Employee | Student |
-|------------|:-:|:-:|:-:|:-:|
-| Create activity (Draft) | ✓ | ✓ | – | – |
-| Submit activity for approval | ✓ (auto-approved) | ✓ | – | – |
-| Approve / reject activity | ✓ | – | – | – |
-| Publish activity | ✓ | ✓ (after approval) | – | – |
-| Edit activity post-publish (non-budget) | ✓ | ✓ (own) | – | – |
-| Edit activity post-publish (budget increase) | ✓ | request → Manager approves | – | – |
-| Cancel activity | ✓ | ✓ (own) | – | – |
-| Raise/lower capacity | ✓ | ✓ (own) | – | – |
-| Take attendance | ✓ | ✓ (own) | ✓ (assigned) | – |
-| Issue/regenerate certificate | ✓ | ✓ (own) | – | view/download own |
-| View any activity's roster | ✓ | own only | assigned only | – |
-| Create/edit club | ✓ | ✓ (assigned) | – | – |
-| Manage club roster/committees | ✓ | ✓ (assigned) | – | view own |
-| Create counseling appointment slot | ✓ | – | ✓ (own calendar) | – |
-| Book counseling appointment | ✓ (on behalf) | – | – | ✓ (own) |
-| View counseling notes | ✓ | – | ✓ (own sessions) | – (or own summary, see §11.2) |
-| Create health appointment slot | ✓ | – | ✓ (own calendar) | – |
-| Book health appointment | ✓ (on behalf) | – | – | ✓ (own) |
-| Log walk-in visit | ✓ | – | ✓ | – |
-| View health records | ✓ | – | ✓ (own logs) | – (or own summary) |
-| Record budget transactions | ✓ | ✓ (own activity) | – | – |
-| View budget across all activities | ✓ | own only | – | – |
-| View dashboards | ✓ (all) | ✓ (own scope) | ✓ (own scope) | ✓ (own profile) |
-| Build custom reports | ✓ | – | – | – |
-| Export CSV/Excel/PDF | ✓ | ✓ (own scope) | ✓ (own scope) | own data only |
-| View audit log | ✓ | – | – | – |
-| Assign roles | ✓ | – | – | – |
+Columns show the **minimum role** required. Manager inherits all. Club Coordinator and Club Advisor permissions are scoped to their assigned clubs only. Nurse/Counselor permissions are scoped to the Health/Counseling module only.
+
+| Capability | Manager | Coordinator | Club Coordinator | Club Advisor | Employee / Nurse / Counselor | Club Leader | Student |
+|------------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
+| **— Activities —** | | | | | | | |
+| Create activity (Draft) | ✓ | ✓ | ✓ (club activities) | – | – | ✓ (own club) | – |
+| Submit activity for approval | ✓ auto-approved | ✓ | ✓ (club activities) | – | – | ✓ (own club) | – |
+| Approve activity — step 1 (club) | ✓ override | – | ✓ (assigned clubs) | – | – | – | – |
+| Approve activity — final / standard | ✓ | – | – | – | – | – | – |
+| Reject / request changes | ✓ | – | ✓ (step 1, assigned clubs) | – | – | – | – |
+| Publish activity | ✓ | ✓ (own, after approval) | ✓ (club, after Manager approval) | – | – | – | – |
+| Edit activity post-publish (non-budget) | ✓ | ✓ (own) | ✓ (assigned club) | – | – | – | – |
+| Edit activity post-publish (budget increase) | ✓ | request only | request only | – | – | request only | – |
+| Cancel activity | ✓ | ✓ (own) | ✓ (assigned club) | – | – | – | – |
+| Raise/lower capacity | ✓ | ✓ (own) | ✓ (assigned club) | – | – | – | – |
+| Take attendance | ✓ | ✓ (own) | ✓ (assigned club) | – | ✓ (assigned) | – | – |
+| Issue/regenerate certificate | ✓ | ✓ (own) | ✓ (assigned club) | – | – | – | view/download own |
+| View activity roster | ✓ all | own only | assigned club only | assigned club (read) | assigned only | own club | – |
+| **— Clubs —** | | | | | | | |
+| Create / edit club | ✓ | – | – | – | – | – | – |
+| Assign Club Coordinator to club | ✓ | – | – | – | – | – | – |
+| Assign Club Advisor to club | ✓ | – | – | – | – | – | – |
+| Manage club roster / committees | ✓ | ✓ (assigned) | ✓ (assigned clubs) | – | – | limited (own club) | view own membership |
+| Grant Club Leader status | ✓ | ✓ (assigned) | ✓ (assigned clubs) | – | – | – | – |
+| View club page & activity list | ✓ | ✓ (assigned) | ✓ (assigned) | ✓ (assigned, read) | – | ✓ (own club) | ✓ (public) |
+| **— Budget —** | | | | | | | |
+| Record budget transactions | ✓ | ✓ (own activity) | ✓ (assigned club) | – | – | ✓ (own club) | – |
+| Approve budget change request | ✓ | – | – | – | – | – | – |
+| View budget | ✓ all | own only | assigned club only | assigned club (read) | – | own club only | – |
+| **— Welfare (Health & Counseling) —** | | | | | | | |
+| Create appointment slot | ✓ | – | – | – | ✓ (own calendar) | – | – |
+| Book appointment (on behalf) | ✓ | – | – | – | – | – | ✓ (own) |
+| Log walk-in visit | ✓ | – | – | – | ✓ (Nurse only) | – | – |
+| View health records | ✓ | – | – | – | ✓ (Nurse, own logs) | – | own summary only |
+| View counseling notes | ✓ | – | – | – | ✓ (Counselor, own sessions) | – | own summary only |
+| **— System —** | | | | | | | |
+| View dashboards | ✓ all | ✓ own scope | ✓ assigned clubs | ✓ assigned clubs (read) | ✓ own scope | ✓ own club | ✓ own profile |
+| Build custom reports | ✓ | – | – | – | – | – | – |
+| Export CSV / Excel / PDF | ✓ | ✓ own scope | ✓ own scope | – | ✓ own scope | – | own data only |
+| View audit log | ✓ | – | – | – | – | – | – |
+| Assign roles (Settings page) | ✓ | – | – | – | – | – | – |
 
 ### 3.3 Notes
-- **Manager-as-Coordinator**: Manager can author activities directly. Their submissions auto-approve (no self-approval bottleneck).
-- **Employee assignment**: Employees are linked to specific activities or welfare services. They see only what they're assigned to.
-- **"Own" scoping** for Coordinators is per-activity ownership (creator + co-coordinators) and per-club assignment.
+- **Manager-as-Coordinator**: Manager can author activities directly. Their submissions auto-approve (no self-approval bottleneck). Manager is always the final approver — they cannot be the Club Coordinator in the approval chain for their own department's club activities (no self-approval).
+- **Additive roles**: a user can hold multiple roles simultaneously. The effective permission set is the union of all their role permissions. Example: a user who is both Coordinator and Nurse gets Coordinator permissions in the Activities module and Nurse permissions in the Health module.
+- **Module scoping**: each non-Manager role is bounded to its module. Holding a Nurse role does not grant access to Activities data, and holding a Coordinator role does not grant access to health records. The module boundary is enforced at the authorization layer, not just the UI.
+- **Club Coordinator vs. Coordinator**: a plain Coordinator manages activities they created. A Club Coordinator manages activities submitted by the club they are assigned to — these are different ownership relationships. A user can be both (e.g. Coordinator for their own events and Club Coordinator for two clubs).
+- **Club Advisor (external)**: in v1, Club Advisors are internal staff with a read-only assignment. External Club Advisor accounts (for faculty or professionals outside the department) are a v2 feature.
+- **Employee, Nurse, Counselor**: Employee is the base kind for non-Coordinator, non-Manager staff. Nurse and Counselor are named role designations that grant specific module-scoped capabilities on top of the base Employee kind.
+- **"Own" scoping** for Coordinators: per-activity ownership (creator + co-coordinators) and per-club assignment. Does not extend to other coordinators' activities or unassigned clubs.
 - **Student "view own"**: students always see their own registrations, attendance, certificates, appointments, and visit summaries.
+- **Role assignment**: only Manager can assign roles, from the Settings page. No self-assignment; no delegation of role-assignment authority in v1.
 - **Multi-department roles** (post-v1): a single user may hold different roles in different departments — e.g. Manager in Alumni and Coordinator in Student Activities. Authorization checks always evaluate `(user, department)`.
 - **Cross-department access**: a Manager of Department A cannot view Department B's data. Reports do not aggregate across departments unless explicitly tenant-wide (a future TenantAdmin capability).
 
@@ -139,7 +161,11 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
   - At any time the student can revert to the feed photo with one click.
   - Photo is displayed on Employee check-in screen (visual verification next to the QR scan), on the student's own profile, and on the staff-facing student view. It is NOT shown in public catalog (§6.1) or to other students.
 - **Role**: per-department; see DepartmentRole above. Internal lookup also exposes a derived "primary role" for display (the highest role across departments).
-- **Assignment**: user ↔ activity (as coordinator or employee), user ↔ club (as coordinator/advisor or member), user ↔ welfare_service (as counselor / health staff). Assignments are department-scoped (the activity/club/service lives in one department).
+- **Assignment types** (all department-scoped — the activity/club/service lives in one department):
+  - `ActivityAssignment`: user_id, activity_id, role {coordinator, employee} — links a staff member to a specific activity as owner/co-coordinator or operational employee.
+  - `ClubCoordinatorAssignment`: user_id, club_id, assigned_at, assigned_by — links an internal staff member as first-step approver and manager for a club. Many:many (a club can have multiple; a user can be assigned to multiple clubs). Any assigned coordinator can act on a pending request (OR logic).
+  - `ClubAdvisorAssignment`: user_id, club_id, assigned_at, assigned_by, notes — links an internal staff member as a read-only observer for a club. Many:many. External advisor accounts are v2.
+  - `WelfareAssignment`: user_id, service_id, role {counselor, nurse, health_staff} — links a staff member to a specific welfare service (Health clinic, Counseling centre, etc.).
 
 ### 4.2 Activity & sessions
 - **Activity**: id, tenant_id, department_id, type {Event, Program, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for program), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), self_checkin_enabled (bool, default false), is_public (bool, default false), cert_hours (decimal, default = sum of session durations; manually editable), state (see §5), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete), version (optimistic locking).
@@ -159,8 +185,10 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 - **Certificate**: id, registration_id, issued_at, verification_code, pdf_url, revoked (bool), revoked_reason.
 
 ### 4.5 Clubs
-- **Club**: id, tenant_id, department_id, name, description, advisor_id, established_at, status {active, inactive}, logo, social_links, deleted_at.
-- **ClubMembership**: id, club_id, student_id, role_in_club {member, board_member, president, vp, treasurer, ...}, joined_at, ended_at, status {active, alumni, removed}.
+- **Club**: id, tenant_id, department_id, name, description, established_at, status {active, inactive}, logo, social_links, deleted_at. *(Note: the single `advisor_id` field is removed — replaced by the many:many assignment tables below.)*
+- **ClubCoordinatorAssignment**: id, club_id, user_id, assigned_at, assigned_by (manager_id). Many:many. Grants the user Club Coordinator role scoped to this club — first-step approver for the club's activity requests, club roster and budget management.
+- **ClubAdvisorAssignment**: id, club_id, user_id, assigned_at, assigned_by (manager_id), notes (nullable). Many:many. Grants the user Club Advisor role scoped to this club — read-only observer, receives FYI notifications. v1: internal staff only. v2: add `is_external` flag, `external_name`, `external_email` for faculty/professional advisors with limited external accounts.
+- **ClubMembership**: id, club_id, student_id, role_in_club {member, board_member, president, vp, treasurer, club_leader, ...}, joined_at, ended_at, status {active, alumni, removed}.
 - **Committee**: id, club_id, name, lead_membership_id, members[].
 - Clubs may sponsor Activities (activity.sponsoring_club_id, optional).
 
@@ -298,11 +326,35 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Guest registration toggle** (`allow_guest_registration`, default false). See §7.1.6 for the guest registration flow. When on, non-students (faculty speakers' attendees, parents at family events, external invitees) can register without a SAMA login. Coordinator decides per activity. Independent of `is_public` — an activity can be private to logged-in students AND allow guest registration via a direct link, or be publicly listed AND restricted to students only.
 
 ### 6.2 Approval flow
+
+#### 6.2.1 Standard activity approval (Coordinator-created)
 - Coordinator submits → activity enters **Submitted**.
-- Manager sees a queue of pending approvals (dashboard widget + email/in-app notification).
+- Manager sees it immediately in the Approvals inbox (dashboard widget + in-app notification).
 - Manager can: **Approve**, **Reject (with reason)**, or **Request changes (with comment)** which returns to Draft.
-- Manager-authored activities skip Submitted: Draft → Approved on submit.
+- Manager-authored activities skip Submitted: Draft → Approved on save.
 - Approved activity becomes visible to its owner; Coordinator clicks **Publish** to expose it to students.
+
+#### 6.2.2 Club activity approval (Club Leader-created) — two-step
+Club-created activities go through an additional first step before reaching the Manager.
+
+```
+Club Leader submits
+      ↓  (activity enters Submitted — Phase 1: awaiting Club Coordinator)
+All assigned Club Coordinators notified simultaneously
+      ↓  (any one Club Coordinator acts — OR logic, first to act resolves)
+Club Coordinator: Approve → Phase 2 | Reject → Draft | Request changes → Draft
+      ↓  (on Coordinator approval: Manager notified, activity enters Phase 2)
+Manager: Approve (final) → Approved | Reject → Draft | Request changes → Draft
+      ↓  (on Manager final approval)
+Club Advisors receive FYI notification
+Club Leader receives approval notification → can Publish
+```
+
+- **Manager visibility**: Manager sees all Submitted activities from the moment of submission (Phase 1 included), tagged "Awaiting Club Coordinator" in their Approvals inbox. Manager can override and approve directly at any time, bypassing Phase 1.
+- **Approval inbox**: club requests appear in the same Approvals inbox used for standard activities. They are tagged with the club name so Coordinators and Managers can filter by club.
+- **No intermediate state in the state machine**: the Submitted state carries a `coordinator_approval_phase` marker (pending / coordinator_approved) to drive the two-step UI. The state enum itself does not change — the activity remains in Submitted through both phases.
+- **Rejection at either step**: returns the activity to Draft with a note from the rejecting party. Club Leader can edit and resubmit.
+- **Club Advisor**: not in the approval chain. Receives a read-only FYI notification after Manager final approval.
 
 ### 6.3 Publishing & discovery
 - Once Published, activity appears in the student-facing catalog filtered by eligibility (a student does not see an activity they're not eligible for, unless this is overridden — see §11.3 gap).
@@ -587,36 +639,46 @@ When the activity's `allow_guest_registration = true`, non-students can register
 ## 10. Module — Clubs
 
 ### 10.1 Lifecycle
-- Manager creates a Club: name, description, advisor, logo. Status = Active.
-- Club has a persistent presence (page visible to students).
-- Manager assigns one or more Coordinators (or Employees) as **Advisors**.
+- Manager creates a Club: name, description, logo. Status = Active.
+- Club has a persistent presence (page visible to students and all internal staff).
+- Manager assigns staff to the club using two distinct roles (see §4.5 for data model):
+  - **Club Coordinator(s)**: internal staff who manage the club's activities, budget, and roster. First-step approvers for club activity requests. Many:many — a club can have multiple, a staff member can be Club Coordinator for multiple clubs.
+  - **Club Advisor(s)**: internal staff (v1) or external faculty/professionals (v2) with read-only observer access. Receive FYI notifications. Not in the approval chain. Many:many.
+- Manager can update assignments at any time from the Club settings page or from the system Settings page.
 
-### 10.2 Roster & roles
-- Students apply to join (or are added by Advisor/Manager).
-- Membership has a role-in-club (member, board member, president, treasurer, …).
-- Membership history tracked: joined_at, ended_at, status. Alumni view shows past members.
-- Advisor can promote/demote, remove (with reason), close membership.
+### 10.2 Roster & membership roles
+- Students apply to join a club from the student portal, or are added directly by a Club Coordinator or Manager.
+- Each membership carries a **role-in-club**: member, board_member, president, vp, treasurer, club_leader, or custom.
+- **Club Leader** is a special role-in-club that grants the student the Club Leader system role for that club: they can create and submit activity requests, enter planned budgets, and view the club's activity pipeline.
+- Membership history tracked: joined_at, ended_at, status {active, alumni, removed}. Alumni view shows past members.
+- Club Coordinator (and Manager) can promote/demote, remove (with reason), and close membership. Club Coordinator can grant and revoke Club Leader status.
 
 ### 10.3 Committees
-- Sub-groups within a club (e.g. Marketing, Logistics).
-- Each committee has a lead and members drawn from the roster.
+- Sub-groups within a club (e.g. Marketing, Logistics, Events).
+- Each committee has a lead and members drawn from the club roster.
 - Committee can be linked to specific activities the club sponsors.
 
-### 10.4 Club-sponsored activities
-- A club can sponsor an Activity. The activity goes through the same approval workflow.
-- The club's page lists upcoming/past sponsored activities.
+### 10.4 Club activity requests — approval flow
+- A Club Leader creates an activity request on behalf of the club. The activity is associated with the club (sponsoring_club_id).
+- On submission, all Club Coordinators assigned to that club are notified simultaneously.
+- **Any one Club Coordinator** can act: Approve (advances to Manager), Reject (returns to Draft with reason), or Request changes (returns to Draft with comment). First to act resolves — others' queue items clear automatically.
+- On Club Coordinator approval: activity enters Phase 2 (awaiting Manager). Manager is notified. The activity appears in the Manager's Approvals inbox tagged with the club name.
+- **Manager is the final approver** for all club activities, identical to standard activities. Manager can override Phase 1 and approve directly at any time.
+- On Manager final approval: Club Advisors receive a FYI notification. Club Leader is notified and can Publish the activity.
+- Full two-step flow documented in §6.2.2.
 
 ### 10.5 Recurring meetings (clubs that meet weekly)
 - Recurring meetings (e.g. "Photography Club meets every Tuesday 7pm") are modeled as **one Program-type activity per academic term**, with weekly sessions as the Program's Sessions.
   - Example: a club running for the Fall 2026 term creates one Program-type activity "Photography Club — Fall 2026" with ~14 weekly sessions.
-  - Members register once for the Program (via club membership → Coordinator can bulk-register the club roster). Attendance is tracked per weekly session as for any Program.
+  - Members register once for the Program (via club membership → Club Coordinator can bulk-register the club roster). Attendance is tracked per weekly session as for any Program.
   - Completion threshold and certificate apply at term end (same Program flow).
 - Per-session sign-up is typically off for club meetings (the roster is the club roster, members come every week).
 - A new term = a new Program. Clone-from-closed (§15 Scenario M) makes the next term's setup one-click.
 - **Why Program-per-term rather than ad-hoc weekly events**: one budget, one roster, one certificate, one dashboard entry — operationally lighter and matches academic-term reality. A proper open-ended recurrence model (no end date) is deferred to v2.
 
 ### 10.6 Reporting
-- Manager dashboard: number of active clubs, member counts, activity counts, advisor list.
+- Manager dashboard: number of active clubs, member counts, activity counts, Club Coordinator list, pending club requests.
+- Club Coordinator view: activity pipeline for assigned clubs, member roster, budget summary.
 
 ---
 
@@ -1163,6 +1225,25 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-A5**: Increasing budget on an Approved/Published activity requires Manager approval; decreasing is free.
 - **BR-A6**: Cancellation requires a reason.
 - **BR-A7**: Coordinators can only edit/cancel their own activities (or co-coordinated). Managers can act on any.
+- **BR-A8**: Club Coordinators can edit/cancel club activities for their assigned clubs. They cannot act on activities outside their assigned clubs.
+
+### Roles & access
+- **BR-RA1**: Roles are additive. A staff member can hold multiple roles simultaneously; their effective permissions are the union of all role permissions.
+- **BR-RA2**: Non-Manager role permissions are module-scoped. A Nurse role grants access only within the Health module. A Coordinator role grants access only within the Activities module. Holding one role does not bleed permissions into another module.
+- **BR-RA3**: Manager is a superset role with full access across all modules and all data in the department. No module boundary applies to Manager.
+- **BR-RA4**: Only Manager can assign, modify, or revoke roles — from the Settings page. No delegation of role-assignment authority in v1.
+- **BR-RA5**: Club Coordinator is a scoped role — a user assigned as Club Coordinator for Club A has no Club Coordinator authority over Club B unless separately assigned.
+- **BR-RA6**: Club Advisor is a read-only observer role scoped to assigned clubs. No approval authority in v1. External Club Advisor accounts (faculty, external professionals) are a v2 feature.
+- **BR-RA7**: Club Leader is a student-facing system role granted per-club by Manager or Club Coordinator. It grants the student authority to create and submit activity requests for that club only.
+
+### Clubs
+- **BR-CL1**: A club activity request submitted by a Club Leader routes to all assigned Club Coordinators for that club simultaneously (OR logic — any one can act; first to act resolves, others' pending items clear).
+- **BR-CL2**: Club activity approval is two-step: Club Coordinator (step 1) → Manager (final). Both steps use the same Approve / Reject / Request-changes actions.
+- **BR-CL3**: Manager sees all club activity requests from the moment of submission and can override Phase 1, approving directly at any time.
+- **BR-CL4**: Club Advisors are not in the approval chain. They receive a FYI notification after Manager final approval.
+- **BR-CL5**: A club must have at least one Club Coordinator assigned before a Club Leader can submit activity requests. If no Club Coordinator is assigned, submission is blocked with a message directing the Club Leader to contact the Manager.
+- **BR-CL6**: Club Coordinator assignments and Club Advisor assignments are many:many (a club can have multiple of each; a staff member can be assigned to multiple clubs in each role).
+- **BR-CL7**: Club Coordinator assignment and removal is logged in the audit trail.
 
 ### Registration
 - **BR-R1**: A student cannot register for an activity outside its registration window.
@@ -1399,12 +1480,24 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - *PRF (Purchase Request Form) workflow is deferred to v2. v1 shows an informational banner on budgeted activities reminding staff a PRF is required via the standard process.*
 - *Budget tab stat cards expanded to six: Planned, Approved, Spent, Remaining, Expected revenue, Received revenue.)*
 
+*(Resolved round 27 — Role architecture & club approval, now reflected in §3, §4.1, §4.5, §6.2, §10, §16:*
+- *Roles are additive and module-scoped. Manager is the superset with no module boundary. Nurse/Counselor permissions are Health/Counseling module-only. Coordinator permissions are Activities module-only.*
+- *Two new roles added to the matrix: Club Coordinator (internal, first-step approver for assigned clubs) and Club Advisor (internal or external observer, no approval authority in v1).*
+- *Club Leader formalised as a student-facing system role granted per-club.*
+- *"Supervisor" role dropped — Club Coordinator covers the function.*
+- *Club activity approval is two-step: Club Coordinator (step 1, any one of the assigned coordinators acts — OR logic) → Manager (final). Manager can override at any time.*
+- *Manager sees all Submitted activities from Phase 1 onward. Club Advisors receive FYI notification after Manager final approval.*
+- *advisor_id on Club model replaced by ClubCoordinatorAssignment and ClubAdvisorAssignment many:many tables.*
+- *Club approvals appear in the same Approvals inbox, tagged with the club name.*
+- *Role assignment is Manager-only from the Settings page. No delegation in v1.)*
+
 ### 18.5 Decisions deferred
 - **Microsoft SSO**: deferred to a later phase. Local auth in v1.
 - **TenantAdmin & multi-tenant provisioning**: schema-ready; UX/operations not designed for v1.
 - **v2 modules** (Alumni, Colleges, etc.): module catalog is open-ended; specific module scopes belong in their own PRDs.
 - **Finance Integration Spec**: separate document required before paid-activity build (see §18.3).
 - **PRF workflow** (Purchase Request Form): full multi-step chain (Coordinator → Manager → Procurement → Finance → President) is a v2 feature. v1 shows a reminder banner only. See §12.8.
+- **External Club Advisor accounts**: faculty or professionals outside the department assigned as Club Advisors need a limited external account type (scoped to their club(s), read-only, magic-link auth). Deferred to v2. v1: Club Advisors are internal staff only.
 
 ### 18.6 Architectural assumptions to validate
 - **Single Manager in v1**, but the schema supports multiple Managers and per-department role assignments via `DepartmentRole` (§4.0). No retrofit needed when a second Manager joins.
