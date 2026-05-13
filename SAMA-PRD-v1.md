@@ -199,6 +199,8 @@ Columns show the **minimum role** required. Manager inherits all. Club Coordinat
 | Export CSV / Excel / PDF | ✓ | ✓ own scope | ✓ own scope | – | ✓ own scope | – | own data only |
 | View audit log | ✓ | – | – | – | – | – | – |
 | Assign roles (Settings page) | ✓ | – | – | – | – | – | – |
+| **— Settings —** | | | | | | | |
+| Access Settings page | ✓ full access | Delegated tabs only (if granted by Manager) | – | – | – | – | – |
 
 ### 3.3 Notes
 - **Scope of §3.2 permission matrix**: the matrix above covers **SAMA only** — the internal staff tool. The Student Portal has its own permission model, defined in §13 (Student Portal). Student and Club Officer roles are not represented in §3.2 because they do not access SAMA.
@@ -1383,6 +1385,114 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 
 ---
 
+## 15a. Module — Settings
+
+The Settings page is accessible via a gear icon or navigation entry in SAMA. It is structured as a tab bar at the top, using the same visual pattern as activity detail tabs. Manager has full access to all tabs. Coordinators can be granted access to specific tabs by the Manager — access is per-tab, not per-field. Students and Club Officers never have access to Settings.
+
+Module enabling and disabling is done by IT at deployment. The Manager configures settings within enabled modules but cannot fully disable a module from the UI.
+
+### 15a.1 Tab 1 — General
+
+Settings in this tab:
+
+- **University name** — displayed in the header, certificates, and email templates.
+- **Logo** — uploaded image, used in header, certificates, and emails.
+- **Timezone** — system-wide (default: Asia/Dubai, UTC+4). All timestamps display in this timezone.
+- **Currency** — single currency for all budgets (default: AED). Set once at deployment; changing after data exists requires IT migration.
+- **Locale** — language for system-generated text (V1: English only). Switching to Arabic deferred to V2.
+- **Support contact email** — shown to students on error pages and the Student Portal.
+
+Who can access: Manager (edit). Delegatable to Coordinator (read-only).
+
+### 15a.2 Tab 2 — People & Roles
+
+Settings in this tab:
+
+- **Staff accounts** — list of all staff with name, email, roles, status (active/inactive). Manager can: add new staff (triggers SSO invitation email), deactivate accounts, view last login.
+- **Role assignment** — per-staff, Manager can assign/remove roles (Coordinator, Club Coordinator, Club Advisor, Nurse, Counselor). This is where the role assignment UI lives (referenced throughout §3).
+- **Delegated settings access** — per-staff, Manager can grant access to specific Settings tabs (e.g. grant a Coordinator access to the Notifications tab).
+- **Student roster** — read-only view of all student records in SAMA. Shows name, student ID, major, year, enrollment status, last login. Not editable from here (source of truth is SIS).
+- **SIS sync** — shows last sync timestamp and status (success/failed/running). Manager can trigger a manual sync on demand. Shows count of new/updated/deactivated records from last sync.
+- **Profile photo moderation** — queue of student-uploaded profile photos awaiting approval. Manager or delegated Coordinator can approve or reject.
+
+Who can access: Manager (full edit). Not delegatable — People & Roles tab is Manager-only.
+
+### 15a.3 Tab 3 — Modules
+
+Settings in this tab:
+
+- **Enabled modules** — list of modules enabled by IT at deployment (e.g. Activities, Clubs, Health, Counseling). Status shown (active/inactive). Manager cannot toggle these — contact IT to change.
+- **Per-module configuration** — for each enabled module, a sub-section with that module's configurable settings. Examples:
+  - Activities: default registration policy (open/approval-required), default waitlist behaviour (auto-confirm/configurable window), default cancellation policy.
+  - Clubs: no additional config in V1.
+  - Health: walk-in logging enabled/disabled, appointment slot duration default.
+  - Counseling: appointment slot duration default, max advance booking days.
+- **Future modules** — IT-enabled future modules (Housing, Alumni, etc.) will appear here once enabled.
+
+Who can access: Manager (edit). Delegatable to Coordinator (read-only only).
+
+### 15a.4 Tab 4 — Notifications
+
+Settings in this tab:
+
+- **Email sender identity** — From name (e.g. "SAMA · University Name") and From address (e.g. noreply@uni.ac.ae). Reply-to address (e.g. studentlife@uni.ac.ae).
+- **Notification templates** — list of all system notification types (registration confirmed, waitlist offered, activity cancelled, certificate issued, etc.). Each template shows the default text and a preview. Manager can override the subject and body per template. V1: English only.
+- **System-wide quiet hours** — default no-push window (e.g. 11pm–7am). Students can override with their own preference in the Student Portal.
+- **Delivery channel defaults** — for each notification type, which channels are on by default (in-app, email, push). Manager can adjust defaults system-wide.
+- **Undelivered notifications report** — link to the Manager dashboard report for undelivered notifications (opens Reports module).
+
+Who can access: Manager (edit). Delegatable to Coordinator (edit of templates and channel defaults only — not sender identity).
+
+### 15a.5 Tab 5 — Academic Calendar
+
+Settings in this tab:
+
+- **Semesters** — list of defined academic semesters. Each entry: name (e.g. "Fall 2025–26"), start date, end date. Manager can add, edit, archive. Activities and reports can be scoped to a semester.
+- **Holidays & breaks** — list of official university holidays and break periods. Used for scheduling conflict warnings and as reference in activity creation.
+- **Volunteer hours semester target** — university-wide target (e.g. 25 hours per semester). Applied to all students. Shown in the Student Portal Volunteering tab. Manager sets this once per semester.
+- **Certificate academic year label** — the year string printed on certificates (e.g. "2025–2026"). Separate from semester definitions; updated annually.
+
+Who can access: Manager (edit). Delegatable to Coordinator (read-only).
+
+### 15a.6 Tab 6 — Certificates
+
+Settings in this tab:
+
+- **Certificate template** — visual layout configuration: header logo, university name, signatory name, signatory title, footer text. Preview shown in real-time.
+- **Certificate numbering format** — prefix + year + sequence number (e.g. "SAMA-25-XXXX"). Prefix and format configurable by Manager.
+- **Certificate types** — list of defined certificate types (Attendance, Volunteering Hours, Achievement). Manager can add custom types in V1.
+- **Default survey gating** — system-wide default for survey gating toggle (on or off). Activity creators can override per activity.
+- **Default issuance mode** — system-wide default for certificate issuance mode (manual or auto). Activity creators can override per activity.
+
+Who can access: Manager (edit). Not delegatable — Certificates tab is Manager-only.
+
+### 15a.7 Tab 7 — Integrations
+
+Settings in this tab:
+
+- **SIS connection** — status indicator (connected/disconnected), last successful sync timestamp, SIS endpoint URL (IT-managed, read-only for Manager), sync schedule (configurable by IT).
+- **Finance system** — status indicator, last event received timestamp, adapter type (read-only, configured at deployment by IT).
+- **SSO / Identity Provider** — status indicator, IdP name, attribute mapping (read-only for Manager, edit by IT only).
+- **Email provider** — status indicator, provider name, bounce/delivery rate from last 7 days (read-only).
+- **Push notification provider** — status indicator, provider name (read-only).
+
+Note: Managers can view integration status and trigger a manual SIS sync. All credential and endpoint configuration is IT-only and not exposed in the UI.
+
+Who can access: Manager (view + manual SIS sync trigger). Not delegatable.
+
+### 15a.8 Tab 8 — Audit Log
+
+Settings in this tab:
+
+- Full audit log viewer: searchable and filterable by actor, action type, target entity, date range.
+- Each row: timestamp, actor name + role, action, target entity, IP address.
+- Export to CSV (Manager only).
+- Log is append-only; no entries can be deleted from the UI.
+
+Who can access: Manager only. Not delegatable.
+
+---
+
 ## 16. End-to-end scenarios
 
 These scenarios trace real interactions across modules to expose gaps.
@@ -1685,6 +1795,16 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-RET4**: Hard delete is out of scope for v1 — handled out-of-band when legally required.
 - **BR-T6**: Module enablement in v1 is install-time only. No in-app UI; reserved for future TenantAdmin.
 - **BR-T7**: Cross-department student data: when a student of any department registers for an activity in another department, the receiving Coordinator sees the student's full profile (no minimum-necessary masking in v1).
+
+### Settings
+- **BR-SET1**: The Settings page is accessible to Manager (full access) and to Coordinators only for tabs the Manager has explicitly granted them access to. All other roles have no Settings access.
+- **BR-SET2**: People & Roles, Certificates, and Audit Log tabs are Manager-only and cannot be delegated to Coordinators.
+- **BR-SET3**: Module enabling and disabling is done by IT at the infrastructure level. Managers cannot toggle modules on or off from the Settings UI.
+- **BR-SET4**: Currency is set once at deployment. Changing currency after financial data exists requires an IT-assisted migration and is not supported from the UI.
+- **BR-SET5**: Volunteer hours semester target (Academic Calendar tab) is a system-wide value. All students share the same target. Updated by Manager at the start of each semester.
+- **BR-SET6**: Notification template overrides do not affect already-queued notifications. They apply to all future notifications of that type.
+- **BR-SET7**: SIS manual sync can be triggered by Manager at any time from the People & Roles tab. Sync runs asynchronously; Manager receives an in-app notification on completion.
+- **BR-SET8**: Audit log export to CSV includes all fields: timestamp, actor ID, actor name, role, action type, target entity type, target entity ID, IP address, user agent. Sensitive welfare data reads are included in the export (Manager is authorised for this per §11.3).
 
 ### Cross-cutting: edits, lifecycle, language, notifications, welfare matrix
 - **BR-CC1 (Optimistic locking)**: every editable entity has a `version` field. Save is rejected if version differs; UI shows field-by-field conflict diff and offers reload-and-reapply. No silent overwrites.
@@ -2064,6 +2184,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 85 | V1 flat officer permissions: all club officers (regardless of title) have identical access in the Student Portal "Workspace" tab. Differentiated officer permissions deferred to V2. | round 29 |
 | 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
 | 87 | Round 31 — Student Portal business rules (BR-SP6–SP26) added to §13.6 and §17. Key decisions: (a) Only Active-status activities visible in Explore tab; (b) Registration deadline is configurable per activity (no deadline = open until start); (c) No eligibility restrictions in V1 (deferred to V2); (d) Fee payment out of scope for V1 Student Portal; (e) Cancellation deadline is configurable per activity (new, overrides the Student Portal framing of existing §6.1 policy); (f) Waitlist confirmation window introduced as configurable per activity — this supersedes the prior auto-confirm rule in §7.3/BR-WL1, which is now scoped to the SAMA-default behavior; activity creator may choose to enable a confirmation window instead; (g) Volunteer hours goal is university-wide in system settings, not per student; (h) Self-reported external activity enters Pending verification before counting; (i) Certificate issuance mode is per-activity: Manual (coordinator issues explicitly) or Automatic (threshold-based) — activity creator chooses at setup; (j) Certificates have unique public verification URL, no login required; (k) Certificates do not expire; (l) Transcript is on-demand PDF, no registrar routing in V1; (m) No max club member count in V1; (n) Club leader blocked from leaving if sole remaining leader; (o) Membership applications auto-decline after 14 days; (p) Club announcements in-app only, active members only; (q) Minimum activity request fields defined; (r) Student participation records private by default; (s) 8 notification triggers defined for Student Portal. **Conflict resolved (post-round):** BR-SP11 (item f above) conflicted with BR-WL1 and §7.3, which stated promotion was always auto-confirm. Resolution: configurable confirmation window wins; auto-confirm is the default when no window is set by the coordinator, not the only mode. BR-WL1, §7.3, and BR-SP11 have all been updated to reflect this. | round 31 |
+| 89 | Round 33 — Settings module specified (§15a). Key decisions: (a) Settings page is structured as an 8-tab bar (General, People & Roles, Modules, Notifications, Academic Calendar, Certificates, Integrations, Audit Log), using the same tab-bar visual pattern as activity detail views; (b) Access model: Manager has full access to all tabs; Coordinators can be granted access to specific tabs by the Manager (per-tab delegation, not per-field); Students and Club Officers have no Settings access; (c) Three tabs are non-delegatable and Manager-only: People & Roles, Certificates, and Audit Log; (d) Module toggling is IT-only at deployment; Manager configures settings within enabled modules but cannot enable or disable modules from the UI; (e) Tab coverage — General: branding (university name, logo), timezone (default Asia/Dubai), currency (default AED, set once at deployment), locale (English V1), support contact email; People & Roles: staff accounts (add/deactivate/view last login), role assignment UI, delegated settings access, student roster (read-only), SIS sync status + manual trigger, profile photo moderation queue; Modules: enabled module list (read-only toggle, IT-managed), per-module configurable settings; Notifications: email sender identity, notification templates (override subject/body per type), quiet hours, delivery channel defaults, link to undelivered report; Academic Calendar: semesters (CRUD), holidays and breaks, volunteer hours semester target (system-wide, updated per semester), certificate academic year label; Certificates: certificate template (layout, signatory, preview), numbering format, certificate types, system-wide defaults for survey gating and issuance mode; Integrations: status views for SIS/Finance/SSO/Email/Push providers — all credential and endpoint config is IT-only, Manager can trigger manual SIS sync; Audit Log: full searchable/filterable viewer, CSV export, append-only. Business rules BR-SET1–BR-SET8 added to §17. Settings row added to §3.2 permission matrix. | round 33 |
 | 88 | Round 32 — Four sets of decisions confirmed and documented: (1) **Comms tab** (§6.7): the activity detail view Comms tab is formally specified with two sections — Announcements (external, one-way broadcast to confirmed registrants via in-app + email, with history log showing timestamp/sender/delivery count) and Briefing notes (internal, staff-only, free text, no attachments in V1). Business rules BR-CM1–CM3 added: announcements only when Active or Pending Approval; briefing notes not versioned in V1 (last save overwrites, audit-logged); announcements to confirmed registrants only (not waitlisted). (2) **Student onboarding and SIS integration** (§4.16): primary method is SIS batch import (nightly by default); fallback is Manual CSV upload by Manager or IT. Students pre-exist in SAMA before first login. First SSO login matches by email/student ID; unmatched creates a new record. Single source of truth shared by SAMA and Student Portal. Enrollment status sync: SIS inactive/withdrawn flags the student in SAMA and notifies Coordinators; SSO access continues until IdP disables. Staff provisioning: Manager-created via Settings, or IT-seeded for bootstrap. First Manager account seeded by IT with no dependency on role-assignment workflow. Business rules BR-ON1–ON4 confirmed. (3) **Survey gating and certificate issuance independence** (§9.2, §13.6, §14.3): confirmed as two independent per-activity settings. Issuance mode (Manual or Auto) and survey gating (On or Off) are orthogonal; any combination is valid. Four-combination matrix documented in §9.2. BR-SP14, BR-SV1, BR-SV2 added to §13.6/§17: survey gating On + 30-day auto-unlock triggers an in-app notification to the student. (4) **Welfare V1 scope and module extensibility**: V1 Welfare module covers Health and Counseling only. Housing and all other welfare service types are deferred to V2. §11.0 permission matrix updated to remove Housing and Other columns/rows. Note added directing future modules to the extensibility pattern. New §2.6 (Module extensibility) documents the registration pattern for future modules: own nav entry, own role assignment type, own permission matrix row, own data model section, own BR block. V1 module inventory listed. Planned future modules documented for architectural awareness (Housing, Alumni, Internships, Financial Aid). BR-EXT1 (modules independently gated) and BR-EXT2 (future modules follow registration pattern) added. | round 32 |
 
 ---
