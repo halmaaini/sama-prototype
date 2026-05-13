@@ -93,6 +93,37 @@ Both surfaces call the same API and operate on the same data. An activity submit
 
 ---
 
+## 2.6 Module extensibility
+
+SAMA is designed as a modular platform. Each service area (Health, Counseling, and future modules) is implemented as a self-contained module with:
+- Its own navigation entry in the sidebar
+- Its own role assignment type (e.g. NurseAssignment, CounselorAssignment)
+- Its own permission matrix row
+- Its own data model section in §4
+- Its own business rules block in §16/§17
+
+**V1 ships with:**
+- Activities module (core)
+- Clubs module
+- People registry
+- Welfare: Health sub-module
+- Welfare: Counseling sub-module
+- Reports
+- Student Portal
+
+**Planned future modules (not in V1 scope — documented for architectural awareness):**
+- Housing — student accommodation welfare, room assignments, maintenance requests
+- Alumni — graduate engagement, alumni events, mentorship matching
+- Internships — placement tracking, employer partnerships, student applications
+- Financial Aid — fee waivers, scholarship applications, payment tracking
+
+Each future module follows the same registration pattern: new navigation entry, new role assignment type, new permission rows, new data model section, new BR block. No changes to core infrastructure required.
+
+- **BR-EXT1**: Each module is independently gated. An institution may enable or disable modules without affecting others.
+- **BR-EXT2**: Future modules follow the module registration pattern defined in this section. Deviations require an architecture review.
+
+---
+
 ## 3. Roles & permissions
 
 **Roles are additive** — any authenticated employee can hold multiple roles simultaneously (e.g. Coordinator + Nurse, or Coordinator + Club Coordinator for two clubs). Permissions from each role are **module-scoped**: a Nurse's access to patient records activates only inside the Health module; a Coordinator's approval authority activates only in the Activities module. **Manager is the sole exception** — it is a superset role with full access across all modules and all data in the department, with no module boundary. Roles are assigned by the Manager from the Settings page; no other role can assign roles.
@@ -294,6 +325,30 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 - **PostEventReport** (optional): id, activity_id, outcomes_summary, attendance_highlights, issues, lessons_learned, suggestions, created_by, created_at, updated_at.
 - **ActivityClosure**: id, activity_id, closed_by, closed_at, reopened_at (nullable), reopened_by, reopen_reason. Append-only audit-style record of close/reopen events (one row per close cycle).
 
+### 4.16 User provisioning & SIS integration
+
+#### Student provisioning
+
+- **Primary method — SIS batch import**: The university Student Information System (SIS) pushes a student roster to SAMA on a configurable schedule (default: nightly). Each record contains: student ID, full name, university email, major/department, year of study, enrollment status.
+- **Fallback method — Manual CSV upload**: Manager or IT admin can upload a CSV with the same fields as the SIS batch. Used when SIS is unavailable or for mid-semester corrections (e.g. late enrollees, corrections to an existing record).
+- **Pre-login presence**: students appear in SAMA before their first login. Coordinators can search, register, and assign students to activities even if the student has never authenticated.
+- **SSO matching on first login**: on first SSO login, the student's IdP attributes are matched against the existing SAMA record by university email address (primary) or student ID (secondary). If matched, the session is linked to the existing record. If no match is found, a new record is created (edge case: student not yet in SIS at time of first login).
+- **Single source of truth**: the same student record is used by both SAMA (internal staff tool) and the Student Portal. There is no separate student database for the portal — it reads from the same backend.
+- **Enrollment status sync**: when a student's SIS status changes to "inactive" or "withdrawn," the nightly sync updates SAMA. The student's SSO login continues to work but their record is flagged as inactive. Coordinators are notified for any open registrations belonging to that student.
+
+#### Staff provisioning
+
+- Staff accounts are created manually by the Manager via Settings → People, or by IT via direct database seed for initial system setup.
+- The **first Manager account** is seeded by IT at system initialization. This is the bootstrap account — it has no dependency on any role-assignment workflow in the application.
+- New staff receive an email invitation to complete SSO setup and access the system.
+
+#### Provisioning business rules
+
+- **BR-ON1**: The SIS batch import is the primary source of student identity. Manual CSV upload is a fallback only — it is not the preferred path and should not be used routinely.
+- **BR-ON2**: Student records created via SIS import or CSV are matched to SSO sessions by university email address. If the email matches an existing record, the session is linked; no duplicate record is created.
+- **BR-ON3**: The first Manager account is seeded by IT. All subsequent role assignments — including additional Manager accounts — are performed by an existing Manager via Settings.
+- **BR-ON4**: Deactivating a student in SIS does not immediately revoke their Student Portal access. The nightly sync flags them as inactive in SAMA and notifies affected Coordinators who have open registrations for that student. SSO access remains until the IdP disables their identity.
+
 ---
 
 ## 5. Master activity lifecycle
@@ -446,6 +501,33 @@ Club Leader receives approval notification in Student Portal → can Publish
 ### 6.6 Co-coordination
 - Activity has one owner Coordinator + optional co-coordinators. Co-coordinators have the same edit/manage rights on that activity.
 - Employees are assigned per activity (and optionally per session).
+
+### 6.7 Comms tab
+
+Every activity detail view contains a **Comms** tab with two distinct sections.
+
+#### A. Announcements (external — visible to registrants)
+
+- Any Coordinator or Manager assigned to the activity can compose and send a message to all currently **confirmed** (Registered) students for this activity.
+- **Delivery**: in-app notification + email, sent simultaneously.
+- **One-way broadcast only** — students cannot reply. Announcements are not a messaging thread.
+- **Use cases**: venue change, schedule update, pre-event reminder, post-event follow-up.
+- **History**: all sent announcements are displayed chronologically in the Announcements section with timestamp, sender name, and delivery count (number of recipients at send time).
+- **Who can send**: any Coordinator (owner or co-coordinator) or Manager assigned to the activity.
+
+#### B. Briefing notes (internal — staff only)
+
+- Coordinator can write structured notes intended for Employees assigned to the activity (e.g. setup instructions, access codes, arrival times, emergency contacts).
+- **Visible only to**: Coordinator (owner and co-coordinators), Manager, and Employees assigned to this activity.
+- **Students cannot see briefing notes** under any circumstances.
+- Supports free text. No file attachments in V1.
+- Editable at any time while the activity is Active.
+
+#### Comms business rules
+
+- **BR-CM1**: Announcements can only be sent when the activity status is Active (Published, RegistrationOpen, InProgress) or Pending Approval. Completed and Cancelled activities cannot send new announcements.
+- **BR-CM2**: Briefing notes are not versioned in V1 — last save overwrites. Each edit is recorded in the audit log.
+- **BR-CM3**: Coordinators cannot send announcements to waitlisted students — confirmed (Registered) students only.
 
 ---
 
@@ -690,11 +772,28 @@ When the activity's `allow_guest_registration = true`, non-students can register
 - For Campaign-type activities (which may not have sessions), `cert_hours` defaults to 0 and is staff-set if relevant.
 
 ### 9.2 Issuance
-- Auto-generated when a registration reaches **Completed** state — which only happens after the Coordinator manually closes the activity (see §14.1).
+
+Certificate issuance is controlled by two **independent** per-activity settings:
+
+**Setting 1 — Certificate issuance mode** (chosen at activity creation):
+- **Manual**: Coordinator explicitly clicks "Issue certificate" for individual students or in bulk after closure.
+- **Auto**: system issues certificates automatically when a student's attendance meets or exceeds the configured threshold at closure.
+
+**Setting 2 — Survey gating** (separate toggle, chosen at activity creation, default: On):
+- **On**: the certificate is locked in the student's Certificates tab until they submit the post-activity survey. After 30 days post-closure, the certificate auto-unlocks regardless of survey status.
+- **Off**: the certificate is immediately downloadable once issued.
+
+These two settings are independent. Any combination is valid:
+
+| Issuance mode | Survey gating | Result |
+|---|---|---|
+| Auto | Off | Certificate appears immediately after threshold met — downloadable right away |
+| Auto | On | Certificate appears after threshold, locked until survey submitted (or 30-day auto-unlock) |
+| Manual | Off | Coordinator clicks issue; immediately downloadable |
+| Manual | On | Coordinator clicks issue; student must complete survey to download (or 30-day auto-unlock) |
+
 - Generated as PDF, stored, with a unique **verification code** and a public verify URL.
-- **Survey gating** (default for any activity that issues certificates): the certificate is generated and exists, but the student cannot download/view it until they submit the standard post-activity survey (§14.3). Locked-state UI shows "Submit your feedback to unlock your certificate."
 - **Override**: Coordinator (own) or Manager can release a certificate to a specific student without survey submission, with reason (audit-logged).
-- **Auto-release fallback**: 30 days post-closure, certificates auto-unlock regardless of survey status.
 - Anyone (without login) can paste the verification code on the public verify URL to confirm authenticity.
 
 ### 9.3 Revocation
@@ -790,7 +889,9 @@ Everything described elsewhere in §10 from the Club Leader's perspective (submi
 
 ### 11.0 Welfare role permission matrix
 
-The welfare module supports multiple specialized Employee roles (Counselor, Nurse / Health staff, Housing staff, etc.). Cross-track visibility is **not strict siloing** and **not all-open** — it's a **per-role permission matrix** configured by the Manager.
+> **V1 scope**: the Welfare module covers exactly two services — **Counseling** and **Health**. Housing, Financial Aid, and any other welfare service types are deferred to V2.
+
+The welfare module supports multiple specialized Employee roles (Counselor, Nurse / Health staff). Cross-track visibility is **not strict siloing** and **not all-open** — it's a **per-role permission matrix** configured by the Manager.
 
 For each welfare role and each welfare module, the matrix grants one of:
 - `none` — role cannot see this module at all (not even visit counts).
@@ -800,15 +901,16 @@ For each welfare role and each welfare module, the matrix grants one of:
 
 **Defaults out-of-the-box** (Manager can adjust):
 
-| Role | Counseling | Health | Housing | Other |
-|---|---|---|---|---|
-| Counselor | manage | summary | none | none |
-| Nurse / Health | none | manage | none | none |
-| Housing staff | none | none | manage | none |
-| Manager | view | view | view | view |
+| Role | Counseling | Health |
+|---|---|---|
+| Counselor | manage | summary |
+| Nurse / Health | none | manage |
+| Manager | view | view |
+
+*(Housing and other welfare service types are deferred to V2. When added, each will follow the module extensibility pattern described in §2.6 and receive its own row in this matrix.)*
 
 - The "Nurse can have view on some modules, Counselor only sees her module" pattern is achievable by editing the matrix per role.
-- Every read of any welfare record (counseling note, health note, housing log) is audit-logged regardless of role (§15.4).
+- Every read of any welfare record (counseling note, health note, or visit log) is audit-logged regardless of role (§15.4).
 - A student opening their own profile sees: appointment dates + attending staff name + status. They do **not** see notes content by default (see §11.4 for the student-visible summary).
 - Changing the matrix is audit-logged; new permissions apply prospectively (not retroactive to prior reads).
 
@@ -1004,7 +1106,9 @@ These rules govern student-facing behavior in the Student Portal. They complemen
 
 #### Certificates
 
-- **BR-SP14**: Certificates may be issued in one of two modes, chosen by the activity creator at setup: (1) **Manual** — a coordinator issues certificates explicitly; (2) **Automatic** — certificates are issued automatically when a student meets a configured attendance threshold set per activity. Both modes are supported. The activity creator selects the mode when setting up the activity.
+- **BR-SP14**: Certificate issuance mode and survey gating are two independent per-activity settings. Issuance mode (Manual or Automatic) controls when the certificate is issued. Survey gating (On or Off) controls whether the certificate is locked until the student submits the post-activity survey. Neither setting implies the other; any combination is valid. See §9.2 for the full interaction matrix.
+- **BR-SV1**: Survey gating and certificate issuance mode are independent activity-level settings. Neither implies the other. A coordinator may configure any combination: Auto-issue + no gate, Auto-issue + gate, Manual + no gate, or Manual + gate.
+- **BR-SV2**: When survey gating is On and the 30-day auto-unlock triggers, the student receives an in-app notification that their certificate is now available for download.
 - **BR-SP15**: Each certificate has a unique public verification URL. Anyone with the URL can view certificate details (student name, activity, date, certificate type, issuing institution) without logging in.
 - **BR-SP16**: Certificates do not expire.
 
@@ -1086,11 +1190,11 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Dispatch trigger**: surveys go out at closure (§14.1 step 3) — not when end_at passes, not at registration.
 - **Reminders**: in-app + email reminders at +3 days and +7 days post-closure if unsubmitted. After +14 days, no further reminders.
 - **Open window**: surveys remain open indefinitely (no hard close). Manager can still see results months later.
-- **Certificate gating** (for activities that issue certificates):
-  - Certificate is generated and exists, but **download/view is locked** until the student submits the standard survey.
-  - Locked-state UI: "Submit your feedback to unlock your certificate."
+- **Survey gating and certificate issuance mode are independent settings** (see §9.2 for the full matrix). Survey gating is a separate per-activity toggle (default: On). Certificate issuance mode is a separate per-activity setting (Manual or Auto). Neither implies the other.
+  - When **survey gating is On**: the certificate is locked in the student's Certificates tab until they submit the standard survey. Locked-state UI: "Submit your feedback to unlock your certificate."
+  - When **survey gating is Off**: the certificate is immediately downloadable once issued, regardless of survey submission status.
   - **Override**: Coordinator (own) or Manager can release the certificate to a specific student without survey submission, with reason (audit-logged).
-  - **Auto-release fallback**: after 30 days post-closure, certificates auto-unlock regardless of survey status (configurable; prevents indefinite lock-out).
+  - **Auto-release fallback**: after 30 days post-closure, certificates with survey gating On auto-unlock regardless of survey status. The student receives an in-app notification that their certificate is now available.
 - **Activities without certificates**: surveys are still sent; reminders apply; no gating mechanic.
 - **Result viewing**:
   - Coordinator (own activity): aggregate stats + free-text comments (anonymous).
@@ -1624,7 +1728,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-SP11**: Waitlist confirmation window is configurable per activity by the coordinator. If a student does not confirm within the window after a spot is offered, the spot passes to the next person on the waitlist and the original student is notified.
 - **BR-SP12**: The volunteer hours semester goal is a university-wide fixed target configured in system settings (not per student). All students share the same target.
 - **BR-SP13**: Self-reported external activity attendance is not automatically counted. It enters a "Pending verification" state. A coordinator must verify before it appears on the student's official transcript or contributes to hours totals.
-- **BR-SP14**: Certificates may be issued in one of two modes chosen by the activity creator at setup: (1) Manual — a coordinator issues certificates explicitly; (2) Automatic — certificates are issued automatically when a student meets a configured attendance threshold set per activity. Both modes are supported.
+- **BR-SP14**: Certificate issuance mode and survey gating are two independent per-activity settings. Issuance mode (Manual or Automatic) controls when the certificate is issued. Survey gating (On or Off) controls whether the certificate is locked until survey submission. Neither setting implies the other. See §9.2 for the full interaction matrix.
 - **BR-SP15**: Each certificate has a unique public verification URL. Anyone with the URL can view certificate details (student name, activity, date, certificate type, issuing institution). No login required to verify.
 - **BR-SP16**: Certificates do not expire.
 - **BR-SP17**: A student transcript includes: all completed activities (attended), self-reported activities verified by a coordinator, cumulative volunteer hours, and all certificates earned.
@@ -1960,6 +2064,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 85 | V1 flat officer permissions: all club officers (regardless of title) have identical access in the Student Portal "Workspace" tab. Differentiated officer permissions deferred to V2. | round 29 |
 | 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
 | 87 | Round 31 — Student Portal business rules (BR-SP6–SP26) added to §13.6 and §17. Key decisions: (a) Only Active-status activities visible in Explore tab; (b) Registration deadline is configurable per activity (no deadline = open until start); (c) No eligibility restrictions in V1 (deferred to V2); (d) Fee payment out of scope for V1 Student Portal; (e) Cancellation deadline is configurable per activity (new, overrides the Student Portal framing of existing §6.1 policy); (f) Waitlist confirmation window introduced as configurable per activity — this supersedes the prior auto-confirm rule in §7.3/BR-WL1, which is now scoped to the SAMA-default behavior; activity creator may choose to enable a confirmation window instead; (g) Volunteer hours goal is university-wide in system settings, not per student; (h) Self-reported external activity enters Pending verification before counting; (i) Certificate issuance mode is per-activity: Manual (coordinator issues explicitly) or Automatic (threshold-based) — activity creator chooses at setup; (j) Certificates have unique public verification URL, no login required; (k) Certificates do not expire; (l) Transcript is on-demand PDF, no registrar routing in V1; (m) No max club member count in V1; (n) Club leader blocked from leaving if sole remaining leader; (o) Membership applications auto-decline after 14 days; (p) Club announcements in-app only, active members only; (q) Minimum activity request fields defined; (r) Student participation records private by default; (s) 8 notification triggers defined for Student Portal. **Conflict resolved (post-round):** BR-SP11 (item f above) conflicted with BR-WL1 and §7.3, which stated promotion was always auto-confirm. Resolution: configurable confirmation window wins; auto-confirm is the default when no window is set by the coordinator, not the only mode. BR-WL1, §7.3, and BR-SP11 have all been updated to reflect this. | round 31 |
+| 88 | Round 32 — Four sets of decisions confirmed and documented: (1) **Comms tab** (§6.7): the activity detail view Comms tab is formally specified with two sections — Announcements (external, one-way broadcast to confirmed registrants via in-app + email, with history log showing timestamp/sender/delivery count) and Briefing notes (internal, staff-only, free text, no attachments in V1). Business rules BR-CM1–CM3 added: announcements only when Active or Pending Approval; briefing notes not versioned in V1 (last save overwrites, audit-logged); announcements to confirmed registrants only (not waitlisted). (2) **Student onboarding and SIS integration** (§4.16): primary method is SIS batch import (nightly by default); fallback is Manual CSV upload by Manager or IT. Students pre-exist in SAMA before first login. First SSO login matches by email/student ID; unmatched creates a new record. Single source of truth shared by SAMA and Student Portal. Enrollment status sync: SIS inactive/withdrawn flags the student in SAMA and notifies Coordinators; SSO access continues until IdP disables. Staff provisioning: Manager-created via Settings, or IT-seeded for bootstrap. First Manager account seeded by IT with no dependency on role-assignment workflow. Business rules BR-ON1–ON4 confirmed. (3) **Survey gating and certificate issuance independence** (§9.2, §13.6, §14.3): confirmed as two independent per-activity settings. Issuance mode (Manual or Auto) and survey gating (On or Off) are orthogonal; any combination is valid. Four-combination matrix documented in §9.2. BR-SP14, BR-SV1, BR-SV2 added to §13.6/§17: survey gating On + 30-day auto-unlock triggers an in-app notification to the student. (4) **Welfare V1 scope and module extensibility**: V1 Welfare module covers Health and Counseling only. Housing and all other welfare service types are deferred to V2. §11.0 permission matrix updated to remove Housing and Other columns/rows. Note added directing future modules to the extensibility pattern. New §2.6 (Module extensibility) documents the registration pattern for future modules: own nav entry, own role assignment type, own permission matrix row, own data model section, own BR block. V1 module inventory listed. Planned future modules documented for architectural awareness (Housing, Alumni, Internships, Financial Aid). BR-EXT1 (modules independently gated) and BR-EXT2 (future modules follow registration pattern) added. | round 32 |
 
 ---
 
