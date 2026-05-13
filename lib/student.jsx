@@ -901,161 +901,483 @@ const QRTicketModal = ({ activity, onClose }) => {
 };
 
 /* ── Workspace tab — club officer management ── */
-const WebWorkspace = () => {
-  const [applications, setApplications] = React.useState([
-    { id:"wa1", name:"Khalid Al-Falasi",  sid:"202402011", dept:"Medicine",    club:"CS Club",     clubColor:"#3a3dd9", reason:"Keen to learn Python and contribute to projects",          applied:"Nov 1, 2025" },
-    { id:"wa2", name:"Nour Al-Rashidi",   sid:"202401654", dept:"Engineering", club:"CS Club",     clubColor:"#3a3dd9", reason:"Looking to expand my programming skills with peers",       applied:"Nov 2, 2025" },
-    { id:"wa3", name:"Hessa Al-Dhaheri",  sid:"202402198", dept:"Science",     club:"Debate Club", clubColor:"#0a7a78", reason:"Interested in competitive debating and public speaking",   applied:"Nov 3, 2025" },
-  ]);
-  const [activityRequests, setActivityRequests] = React.useState([
-    { id:"wr1", title:"Python Bootcamp",               club:"CS Club",     type:"Program",      submitted:"Oct 1, 2025",  status:"Approved"                 },
-    { id:"wr2", title:"Startup Pitch Night",            club:"CS Club",     type:"Event",        submitted:"Oct 28, 2025", status:"In coordinator review"    },
-    { id:"wr3", title:"Regional Debate Championship",   club:"Debate Club", type:"Event",        submitted:"Oct 30, 2025", status:"Pending manager approval" },
-  ]);
-  const [showSubmitModal, setShowSubmitModal] = React.useState(false);
-  const toast = useToast();
 
-  const myClubs = [
-    { id:"c1", name:"CS Club",     color:"#3a3dd9", role:"Vice President", members:24 },
-    { id:"c2", name:"Debate Club", color:"#0a7a78", role:"Secretary",      members:18 },
-  ];
+const STATUS_TONE = { "Approved":"green", "In coordinator review":"amber", "Pending manager approval":"indigo", "Rejected":"red", "Draft":"slate" };
 
-  const pendingByClub = (name) => applications.filter(a => a.club === name).length;
-
-  const approve = (id) => {
-    setApplications(prev => prev.filter(a => a.id !== id));
-    toast.push({ text:"Application approved · welcome email sent", icon:Icon.CheckCircle });
-  };
-  const decline = (id) => {
-    setApplications(prev => prev.filter(a => a.id !== id));
-    toast.push({ text:"Application declined" });
-  };
-  const submitRequest = (data) => {
-    setActivityRequests(prev => [{ id:`wr${Date.now()}`, title:data.title, club:data.club, type:data.type, submitted:"Just now", status:"In coordinator review" }, ...prev]);
-    setShowSubmitModal(false);
-    toast.push({ text:`Request submitted · ${data.title}`, icon:Icon.CheckCircle });
-  };
-
-  const statusTone = { "Approved":"green", "In coordinator review":"amber", "Pending manager approval":"indigo", "Rejected":"red", "Draft":"slate" };
-
+const WorkspaceHome = ({ myClubs, apps, reqs, onSelect, onSubmit, onApprove, onDecline }) => {
+  const allApps  = myClubs.flatMap(c => (apps[c.id]||[]).map(a => ({ ...a, club:c })));
+  const totMembers = myClubs.reduce((s,c) => s+c.members, 0);
+  const totPending = allApps.length;
+  const totReview  = Object.values(reqs).flat().filter(r => r.status!=="Approved"&&r.status!=="Rejected").length;
   return (
     <div className="p-6">
       <div className="flex items-center justify-between mb-5">
         <div>
           <div className="text-[16px] font-semibold">Good morning, Fatima</div>
-          <div className="text-[12px] text-[var(--mute)] mt-0.5">Club officer workspace · {myClubs.length} clubs · {applications.length} pending application{applications.length !== 1 ? "s" : ""}</div>
+          <div className="text-[12px] text-[var(--mute)] mt-0.5">Club officer workspace · {myClubs.length} clubs</div>
         </div>
-        <Btn variant="default" icon={Icon.Plus} onClick={() => setShowSubmitModal(true)}>Submit activity request</Btn>
+        <Btn variant="default" icon={Icon.Plus} onClick={onSubmit}>Submit activity request</Btn>
+      </div>
+      {/* Stats */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
+        {[[totMembers,"Total members",""],[totPending,"Pending applications",totPending>0?"text-[var(--warn)]":""],[totReview,"Requests in progress",""]].map(([n,label,cls])=>(
+          <div key={label} className="bg-white border hairline rounded-[10px] p-4 text-center">
+            <div className={cx("text-[24px] font-semibold",cls)}>{n}</div>
+            <div className="text-[11px] text-[var(--mute)] mt-0.5">{label}</div>
+          </div>
+        ))}
+      </div>
+      {/* Club cards */}
+      <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">My clubs</div>
+      <div className="grid grid-cols-2 gap-3 mb-5">
+        {myClubs.map(club => {
+          const pending = (apps[club.id]||[]).length;
+          const inReview = (reqs[club.id]||[]).filter(r=>r.status!=="Approved"&&r.status!=="Rejected").length;
+          return (
+            <div key={club.id} onClick={()=>onSelect(club)} className="bg-white border hairline rounded-[10px] overflow-hidden cursor-pointer hover:border-[var(--mute-2)] transition-colors group">
+              <div className="h-1.5 w-full" style={{background:club.color}}/>
+              <div className="p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-10 h-10 rounded-[8px] flex items-center justify-center text-white text-[14px] font-semibold shrink-0" style={{background:club.color}}>
+                    {club.name.split(" ").filter(w=>/[A-Z]/.test(w[0])).slice(0,2).map(w=>w[0]).join("")}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px] font-semibold truncate">{club.name}</div>
+                    <div className="text-[11.5px] text-[var(--mute)]">{club.myRole}</div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 text-center border-t hairline-2 pt-3 mb-3">
+                  <div><div className="text-[16px] font-semibold">{club.members}</div><div className="text-[10px] text-[var(--mute)]">Members</div></div>
+                  <div><div className={cx("text-[16px] font-semibold",pending>0?"text-[var(--warn)]":"")}>{pending}</div><div className="text-[10px] text-[var(--mute)]">Pending</div></div>
+                  <div><div className="text-[16px] font-semibold">{inReview}</div><div className="text-[10px] text-[var(--mute)]">In review</div></div>
+                </div>
+                <div className="text-[11.5px] text-[var(--accent)] font-medium group-hover:underline">Open workspace →</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {/* Cross-club pending applications */}
+      {allApps.length > 0 && (
+        <div>
+          <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Pending applications · {allApps.length}</div>
+          <div className="space-y-2">
+            {allApps.map(app => (
+              <div key={app.id} className="bg-white border hairline rounded-[10px] p-4 flex items-start gap-3">
+                <Avatar name={app.name} size={34}/>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-[13px] font-semibold">{app.name}</div>
+                    <span className="text-[11px] text-[var(--mute)] font-mono">{app.sid}</span>
+                    <Chip tone="slate">{app.dept}</Chip>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5">
+                    <div className="w-2 h-2 rounded-full shrink-0" style={{background:app.club.color}}/>
+                    <span className="text-[11.5px] text-[var(--mute)]">{app.club.name} · Applied {app.applied}</span>
+                  </div>
+                  <div className="text-[12px] text-[var(--ink-2)] italic mt-1.5">"{app.reason}"</div>
+                </div>
+                <div className="flex gap-1.5 shrink-0">
+                  <Btn variant="outline" size="sm" icon={Icon.X}     onClick={()=>onDecline(app.club.id,app.id)}>Decline</Btn>
+                  <Btn variant="default" size="sm" icon={Icon.Check} onClick={()=>onApprove(app.club.id,app.id)}>Approve</Btn>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {allApps.length === 0 && (
+        <div className="bg-white border hairline rounded-[10px] p-5 flex items-center gap-3 text-[12.5px] text-[var(--ok)]">
+          <Icon.CheckCircle width={18} height={18}/>All caught up — no pending applications across your clubs.
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ProposeChangeModal = ({ field, current, onClose, onSubmit }) => {
+  const [proposed, setProposed] = React.useState("");
+  const [reason,   setReason]   = React.useState("");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e=>e.target===e.currentTarget&&onClose()}>
+      <div className="bg-white rounded-[16px] shadow-float w-[480px] overflow-hidden">
+        <div className="px-5 py-4 border-b hairline flex items-center justify-between">
+          <div>
+            <div className="text-[15px] font-semibold">Propose change · {field}</div>
+            <div className="text-[11.5px] text-[var(--mute)] mt-0.5">Sent to your Club Coordinator for review</div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-[7px] hover:bg-[#eeefef] flex items-center justify-center"><Icon.X width={13} height={13}/></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-1">Current value</div>
+            <div className="text-[12.5px] text-[var(--ink-2)] p-3 bg-[#fafafa] rounded-[7px] border hairline-2 leading-relaxed">{current||"—"}</div>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Proposed value <span className="text-[var(--bad)]">*</span></label>
+            <input type="text" value={proposed} onChange={e=>setProposed(e.target.value)} placeholder={`New ${field.toLowerCase()}…`}
+              className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Reason <span className="text-[11px] text-[var(--mute)] font-normal">(optional)</span></label>
+            <textarea rows={2} value={reason} onChange={e=>setReason(e.target.value)} placeholder="Why should this be updated?"
+              className="w-full px-3 py-2 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)] resize-none"/>
+          </div>
+        </div>
+        <div className="px-5 pb-4 flex justify-end gap-2">
+          <Btn variant="outline" onClick={onClose}>Cancel</Btn>
+          <Btn variant="default" icon={Icon.Send} className={cx(!proposed&&"opacity-50 pointer-events-none")} onClick={()=>proposed&&onSubmit(proposed,reason)}>Submit request</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const WorkspaceClub = ({ club, myRole, tab, setTab, apps, reqs, announcements, onBack, onApprove, onDecline, onSubmitRequest, onSendAnnouncement }) => {
+  const [proposeModal,   setProposeModal]   = React.useState(null);
+  const [announceDraft,  setAnnounceDraft]  = React.useState("");
+  const toast = useToast();
+
+  const memberSize = Math.min(club.members, 14);
+  const members = SAMA.PEOPLE.slice(0, memberSize).map((p,i) => ({
+    ...p,
+    clubRole: i===0?"Leader":i===1?"Vice":i===2?"Secretary":"Member",
+    joined: ["Sep 2024","Oct 2024","Nov 2024","Jan 2025","Feb 2025","Mar 2025","May 2025","Aug 2025","Sep 2025","Sep 2025","Oct 2025","Oct 2025","Oct 2025","Oct 2025"][i],
+  }));
+  members[0] = { ...members[0], name: club.leader };
+
+  const clubTabs = [
+    ["members","Members","Users"],
+    ["activities","Activities","Star"],
+    ["announcements","Announcements","Send"],
+    ["budget","Budget","Chart"],
+    ["info","Club info","Building"],
+  ];
+
+  return (
+    <div>
+      {/* Club header */}
+      <div className="border-b hairline bg-white">
+        <div className="h-1.5 w-full" style={{background:club.color}}/>
+        <div className="px-6 pt-4 pb-0">
+          <button onClick={onBack} className="text-[11.5px] text-[var(--mute)] hover:text-[var(--ink)] flex items-center gap-1 mb-3 transition-colors">
+            <Icon.ChevRight width={12} height={12} style={{transform:"rotate(180deg)"}}/> All clubs
+          </button>
+          <div className="flex items-center gap-4 mb-4">
+            <div className="w-12 h-12 rounded-[10px] flex items-center justify-center text-white text-[18px] font-semibold shrink-0" style={{background:club.color}}>
+              {club.name.split(" ").filter(w=>/[A-Z]/.test(w[0])).slice(0,2).map(w=>w[0]).join("")}
+            </div>
+            <div>
+              <div className="text-[18px] font-semibold">{club.name}</div>
+              <div className="text-[12px] text-[var(--mute)]">{myRole} · {club.members} members · {club.category}</div>
+            </div>
+            {apps.length > 0 && <Chip tone="amber" className="ml-auto">{apps.length} pending application{apps.length!==1?"s":""}</Chip>}
+          </div>
+          {/* Tabs */}
+          <div className="flex items-center gap-0.5 -mb-px">
+            {clubTabs.map(([id,label,icon]) => {
+              const I = Icon[icon];
+              const badge = id==="members" && apps.length>0;
+              return (
+                <button key={id} onClick={()=>setTab(id)}
+                  className={cx("px-3 h-9 text-[12.5px] font-medium border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-colors",
+                    tab===id?"border-[var(--ink)] text-[var(--ink)]":"border-transparent text-[var(--mute)] hover:text-[var(--ink)]")}>
+                  <I width={13} height={13}/>{label}
+                  {badge && <span className="chip bg-[var(--warn-wash)] text-[var(--warn)]">{apps.length}</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-[1fr,300px] gap-5">
-        {/* Left */}
-        <div className="space-y-5">
-          {/* Pending applications */}
+      {/* Tab content */}
+      <div className="p-6">
+        {/* ── Members ── */}
+        {tab==="members" && (
           <div>
-            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Pending applications · {applications.length}</div>
-            {applications.length === 0 ? (
-              <div className="bg-white border hairline rounded-[10px] p-6 text-center">
-                <Icon.CheckCircle width={24} height={24} className="text-[var(--ok)] mx-auto mb-2"/>
-                <div className="text-[12px] font-medium">All caught up</div>
-                <div className="text-[11.5px] text-[var(--mute)] mt-1">No pending membership applications across your clubs.</div>
+            {apps.length > 0 && (
+              <div className="mb-5">
+                <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Pending applications · {apps.length}</div>
+                <div className="space-y-2 mb-1">
+                  {apps.map(app => (
+                    <div key={app.id} className="bg-[var(--warn-wash)] border border-[var(--warn)]/20 rounded-[10px] p-4 flex items-start gap-3">
+                      <Avatar name={app.name} size={32}/>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <div className="text-[13px] font-semibold">{app.name}</div>
+                          <span className="text-[11px] text-[var(--mute)] font-mono">{app.sid}</span>
+                          <Chip tone="slate">{app.dept}</Chip>
+                        </div>
+                        <div className="text-[11.5px] text-[var(--mute)] mt-0.5">Applied {app.applied}</div>
+                        <div className="text-[12px] text-[var(--ink-2)] italic mt-1">"{app.reason}"</div>
+                      </div>
+                      <div className="flex gap-1.5 shrink-0">
+                        <Btn variant="outline" size="sm" icon={Icon.X}     onClick={()=>onDecline(app.id)}>Decline</Btn>
+                        <Btn variant="default" size="sm" icon={Icon.Check} onClick={()=>onApprove(app.id)}>Approve</Btn>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)]">{club.members} members</div>
+            </div>
+            <div className="bg-white border hairline rounded-[10px] overflow-hidden">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
+                  <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:font-medium"><th>Member</th><th>Department</th><th>Role</th><th>Joined</th></tr>
+                </thead>
+                <tbody>
+                  {members.map((m,i) => (
+                    <tr key={i} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2">
+                          <Avatar name={m.name} size={22}/>
+                          <div><div className="font-medium">{m.name}</div><div className="text-[11px] text-[var(--mute)]">{m.sid}</div></div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-[var(--mute)]">{m.dept}</td>
+                      <td className="px-4 py-2.5"><Chip tone={m.clubRole==="Leader"?"indigo":m.clubRole==="Vice"?"teal":m.clubRole==="Secretary"?"teal":"slate"}>{m.clubRole}</Chip></td>
+                      <td className="px-4 py-2.5 text-[var(--mute)] text-[11.5px]">{m.joined}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {club.members > memberSize && (
+                <div className="px-4 py-2.5 text-center text-[11.5px] text-[var(--mute)] border-t hairline-2">Showing {memberSize} of {club.members} members</div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ── Activities ── */}
+        {tab==="activities" && (
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)]">Activity requests</div>
+              <Btn variant="default" size="sm" icon={Icon.Plus} onClick={onSubmitRequest}>New request</Btn>
+            </div>
+            {reqs.length === 0 ? (
+              <div className="bg-white border hairline rounded-[10px] p-8 text-center">
+                <div className="text-[13px] font-medium mb-1">No requests yet</div>
+                <div className="text-[12px] text-[var(--mute)] mb-3">Submit your first activity request for this club.</div>
+                <Btn variant="outline" size="sm" icon={Icon.Plus} onClick={onSubmitRequest}>Submit request</Btn>
               </div>
             ) : (
+              <div className="bg-white border hairline rounded-[10px] overflow-hidden">
+                <table className="w-full text-[12.5px]">
+                  <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
+                    <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:font-medium"><th>Activity</th><th>Type</th><th>Submitted</th><th>Status</th><th>Coordinator note</th></tr>
+                  </thead>
+                  <tbody>
+                    {reqs.map(r => (
+                      <tr key={r.id} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
+                        <td className="px-4 py-2.5 font-medium">{r.title}</td>
+                        <td className="px-4 py-2.5"><TypeChip type={r.type}/></td>
+                        <td className="px-4 py-2.5 text-[var(--mute)] text-[11.5px]">{r.submitted}</td>
+                        <td className="px-4 py-2.5"><Chip tone={STATUS_TONE[r.status]||"slate"}>{r.status}</Chip></td>
+                        <td className="px-4 py-2.5 text-[var(--mute)] text-[11.5px] italic">{r.feedback||"—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Announcements ── */}
+        {tab==="announcements" && (
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Send announcement</div>
+            <div className="bg-white border hairline rounded-[10px] p-4 mb-5">
+              <textarea rows={3} value={announceDraft} onChange={e=>setAnnounceDraft(e.target.value)}
+                placeholder={`Write a message to all ${club.members} active members of ${club.name}…`}
+                className="w-full px-3 py-2 rounded-[7px] border hairline text-[12.5px] bg-[#fafafa] focus:outline-none focus:border-[var(--accent)] resize-none"/>
+              <div className="flex items-center justify-between mt-3">
+                <div className="text-[11px] text-[var(--mute)] flex items-center gap-1.5">
+                  <Icon.Bell width={11} height={11}/>In-app notification · {club.members} active members
+                </div>
+                <Btn variant="default" size="sm" icon={Icon.Send}
+                  className={cx(!announceDraft.trim()&&"opacity-50 pointer-events-none")}
+                  onClick={()=>{ onSendAnnouncement(announceDraft); setAnnounceDraft(""); }}>Send</Btn>
+              </div>
+            </div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Sent announcements</div>
+            {announcements.length === 0 ? (
+              <div className="text-[12px] text-[var(--mute)] py-2">No announcements sent yet.</div>
+            ) : (
               <div className="space-y-2">
-                {applications.map(app => (
-                  <div key={app.id} className="bg-white border hairline rounded-[10px] p-4 flex items-start gap-3">
-                    <Avatar name={app.name} size={34}/>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <div className="text-[13px] font-semibold">{app.name}</div>
-                        <span className="text-[11px] text-[var(--mute)] font-mono">{app.sid}</span>
-                        <Chip tone="slate">{app.dept}</Chip>
-                      </div>
-                      <div className="flex items-center gap-1.5 mt-0.5">
-                        <div className="w-2 h-2 rounded-full shrink-0" style={{background:app.clubColor}}/>
-                        <span className="text-[11.5px] text-[var(--mute)]">{app.club} · Applied {app.applied}</span>
-                      </div>
-                      <div className="text-[12px] text-[var(--ink-2)] italic mt-1.5">"{app.reason}"</div>
-                    </div>
-                    <div className="flex gap-1.5 shrink-0">
-                      <Btn variant="outline" size="sm" icon={Icon.X} onClick={() => decline(app.id)}>Decline</Btn>
-                      <Btn variant="default" size="sm" icon={Icon.Check} onClick={() => approve(app.id)}>Approve</Btn>
+                {announcements.map(a => (
+                  <div key={a.id} className="bg-white border hairline rounded-[10px] p-4">
+                    <div className="text-[12.5px] text-[var(--ink-2)] leading-relaxed mb-2">{a.text}</div>
+                    <div className="flex items-center gap-2 text-[11px] text-[var(--mute)]">
+                      <Icon.Clock width={11} height={11}/>{a.sentAt}
+                      <span className="divider-dot"/>
+                      <Icon.Users width={11} height={11}/>{a.recipients} members notified
                     </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
+        )}
 
-          {/* Activity requests */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)]">Activity requests</div>
-              <button onClick={() => setShowSubmitModal(true)} className="text-[11.5px] text-[var(--accent)] hover:underline flex items-center gap-1">
-                <Icon.Plus width={11} height={11}/>New request
-              </button>
-            </div>
-            <div className="bg-white border hairline rounded-[10px] overflow-hidden">
-              <table className="w-full text-[12.5px]">
-                <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
-                  <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:font-medium">
-                    <th>Activity</th><th>Club</th><th>Type</th><th>Submitted</th><th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activityRequests.map(r => (
-                    <tr key={r.id} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
-                      <td className="px-4 py-2.5 font-medium">{r.title}</td>
-                      <td className="px-4 py-2.5 text-[var(--mute)]">{r.club}</td>
-                      <td className="px-4 py-2.5"><TypeChip type={r.type}/></td>
-                      <td className="px-4 py-2.5 text-[var(--mute)] text-[11.5px]">{r.submitted}</td>
-                      <td className="px-4 py-2.5"><Chip tone={statusTone[r.status] || "slate"}>{r.status}</Chip></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-
-        {/* Right */}
-        <div className="space-y-4">
-          {/* Officer roles */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">My officer roles</div>
-            {myClubs.map(club => (
-              <div key={club.id} className="bg-white border hairline rounded-[10px] overflow-hidden mb-2">
-                <div className="h-1.5 w-full" style={{background:club.color}}/>
-                <div className="p-4 flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-[8px] flex items-center justify-center text-white text-[13px] font-semibold shrink-0" style={{background:club.color}}>
-                    {club.name.split(" ").filter(w => /[A-Z]/.test(w[0])).slice(0,2).map(w=>w[0]).join("")}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[13px] font-semibold truncate">{club.name}</div>
-                    <div className="text-[11.5px] text-[var(--mute)]">{club.role} · {club.members} members</div>
-                  </div>
-                  {pendingByClub(club.name) > 0 && <Chip tone="amber">{pendingByClub(club.name)} pending</Chip>}
-                </div>
+        {/* ── Budget ── */}
+        {tab==="budget" && (
+          <div className="max-w-[480px]">
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Budget overview · read-only</div>
+            <div className="bg-white border hairline rounded-[10px] p-5 space-y-4">
+              <div className="flex justify-between items-center">
+                <span className="text-[12.5px] text-[var(--mute)]">Approved budget</span>
+                <span className="text-[20px] font-semibold">AED 9,000</span>
               </div>
-            ))}
-          </div>
-
-          {/* Budget snapshot */}
-          <div>
-            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">CS Club · budget</div>
-            <div className="bg-white border hairline rounded-[10px] p-4 space-y-2.5">
-              <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Approved</span><span className="font-semibold">AED 9,000</span></div>
-              <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Spent</span><span className="font-semibold text-[var(--ok)]">AED 5,240</span></div>
-              <Progress value={58} color="var(--ok)"/>
-              <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Remaining</span><span className="font-semibold">AED 3,760</span></div>
-              <div className="text-[10.5px] text-[var(--mute-2)] pt-1 border-t hairline-2">Read-only · contact your coordinator for adjustments</div>
+              <div>
+                {[["Venue & AV setup","University",800],["Catering","University",2100],["Speaker honorarium","University",1200],["Printing & banners","University",400],["Swag & kits","University",740]].map(([desc,fund,amt])=>(
+                  <div key={desc} className="flex items-center justify-between text-[12px] py-2 border-b hairline-2 last:border-0">
+                    <span className="text-[var(--ink-2)]">{desc}</span>
+                    <div className="flex items-center gap-2">
+                      <Chip tone="slate">{fund}</Chip>
+                      <span className="font-mono font-medium w-24 text-right">AED {amt.toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="pt-1 border-t hairline space-y-1.5">
+                <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Spent to date</span><span className="font-semibold text-[var(--ok)]">AED 5,240</span></div>
+                <Progress value={58} color="var(--ok)"/>
+                <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Remaining</span><span className="font-semibold">AED 3,760</span></div>
+              </div>
+            </div>
+            <div className="mt-3 p-3 rounded-[8px] bg-[#fafafa] border hairline-2 text-[11.5px] text-[var(--mute)] flex items-start gap-2">
+              <Icon.Sparkle width={13} height={13} className="shrink-0 mt-0.5"/>
+              Budget is managed by your Club Coordinator. Contact them to request adjustments or additional funds.
             </div>
           </div>
-        </div>
-      </div>
+        )}
 
-      {showSubmitModal && <SubmitActivityModal clubs={myClubs} onClose={() => setShowSubmitModal(false)} onSubmit={submitRequest}/>}
+        {/* ── Club info ── */}
+        {tab==="info" && (
+          <div className="max-w-[560px]">
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-3">Club information</div>
+            <div className="bg-white border hairline rounded-[10px] overflow-hidden">
+              {[
+                ["Description",      club.description],
+                ["Meeting schedule", club.meeting],
+                ["Room / location",  club.room],
+                ["Contact email",    club.email],
+                ["Category",         club.category],
+                ["Founded",          club.founded],
+              ].map(([label,value]) => (
+                <div key={label} className="flex items-start gap-4 px-5 py-4 border-b hairline-2 last:border-0 group hover:bg-[#fafafa]">
+                  <div className="w-[140px] text-[11.5px] text-[var(--mute)] font-medium shrink-0 mt-0.5">{label}</div>
+                  <div className="flex-1 text-[12.5px] text-[var(--ink-2)] leading-relaxed">{value||"—"}</div>
+                  <button onClick={()=>setProposeModal({field:label,current:value})}
+                    className="text-[11px] text-[var(--accent)] opacity-0 group-hover:opacity-100 transition-opacity hover:underline shrink-0 mt-0.5">
+                    Propose change
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 text-[11px] text-[var(--mute)]">Changes are reviewed by your Club Coordinator before taking effect.</div>
+            {proposeModal && (
+              <ProposeChangeModal
+                field={proposeModal.field} current={proposeModal.current}
+                onClose={()=>setProposeModal(null)}
+                onSubmit={()=>{ setProposeModal(null); toast.push({ text:`Change request submitted for "${proposeModal.field}"`, icon:Icon.CheckCircle }); }}
+              />
+            )}
+          </div>
+        )}
+      </div>
     </div>
+  );
+};
+
+const WebWorkspace = () => {
+  const myClubs = React.useMemo(() => [
+    { ...SAMA.CLUBS[0], myRole:"Vice President" },
+    { ...SAMA.CLUBS[1], myRole:"Secretary" },
+  ], []);
+
+  const [sel,    setSel]    = React.useState(null);
+  const [tab,    setTab]    = React.useState("members");
+  const [showSubmit, setShowSubmit] = React.useState(false);
+  const toast = useToast();
+
+  const [apps, setApps] = React.useState(() => ({
+    [SAMA.CLUBS[0].id]: [
+      { id:"wa1", name:"Khalid Al-Falasi", sid:"202402011", dept:"Medicine",    reason:"Keen to learn Python and contribute to projects",      applied:"Nov 1, 2025" },
+      { id:"wa2", name:"Nour Al-Rashidi",  sid:"202401654", dept:"Engineering", reason:"Looking to expand my programming skills with peers",   applied:"Nov 2, 2025" },
+    ],
+    [SAMA.CLUBS[1].id]: [
+      { id:"wa3", name:"Hessa Al-Dhaheri", sid:"202402198", dept:"Science",     reason:"Interested in competitive debating and public speaking", applied:"Nov 3, 2025" },
+    ],
+  }));
+
+  const [reqs, setReqs] = React.useState(() => ({
+    [SAMA.CLUBS[0].id]: [
+      { id:"wr1", title:"Python Bootcamp",     type:"Program", submitted:"Oct 1, 2025",  status:"Approved",                feedback:null },
+      { id:"wr2", title:"Startup Pitch Night", type:"Event",   submitted:"Oct 28, 2025", status:"In coordinator review",   feedback:null },
+    ],
+    [SAMA.CLUBS[1].id]: [
+      { id:"wr3", title:"Regional Debate Championship", type:"Event", submitted:"Oct 30, 2025", status:"Pending manager approval", feedback:null },
+    ],
+  }));
+
+  const [announcements, setAnnouncements] = React.useState(() => ({
+    [SAMA.CLUBS[0].id]: [
+      { id:"an1", text:"Reminder: Weekly meeting tonight at 5pm in Lab A-214. Bring your laptops!", sentAt:"Oct 28, 2025", recipients:24 },
+    ],
+    [SAMA.CLUBS[1].id]: [],
+  }));
+
+  const approve = (clubId, appId) => {
+    setApps(prev => ({ ...prev, [clubId]: prev[clubId].filter(a=>a.id!==appId) }));
+    toast.push({ text:"Application approved · welcome email sent", icon:Icon.CheckCircle });
+  };
+  const decline = (clubId, appId) => {
+    setApps(prev => ({ ...prev, [clubId]: prev[clubId].filter(a=>a.id!==appId) }));
+    toast.push({ text:"Application declined" });
+  };
+  const submitRequest = (data) => {
+    const clubId = myClubs.find(c=>c.name===data.club)?.id || myClubs[0].id;
+    setReqs(prev => ({ ...prev, [clubId]: [{ id:`wr${Date.now()}`, title:data.title, type:data.type, submitted:"Just now", status:"In coordinator review", feedback:null }, ...(prev[clubId]||[])] }));
+    setShowSubmit(false);
+    toast.push({ text:`Request submitted · ${data.title}`, icon:Icon.CheckCircle });
+  };
+  const sendAnnouncement = (clubId, text) => {
+    const club = myClubs.find(c=>c.id===clubId);
+    setAnnouncements(prev => ({ ...prev, [clubId]: [{ id:`an${Date.now()}`, text, sentAt:"Just now", recipients:club?.members||0 }, ...(prev[clubId]||[])] }));
+    toast.push({ text:`Announcement sent to ${club?.members||0} active members`, icon:Icon.CheckCircle });
+  };
+
+  if (!sel) return (
+    <>
+      <WorkspaceHome
+        myClubs={myClubs} apps={apps} reqs={reqs}
+        onSelect={c=>{ setSel(c); setTab("members"); }}
+        onSubmit={()=>setShowSubmit(true)}
+        onApprove={approve} onDecline={decline}
+      />
+      {showSubmit && <SubmitActivityModal clubs={myClubs} onClose={()=>setShowSubmit(false)} onSubmit={submitRequest}/>}
+    </>
+  );
+
+  return (
+    <>
+      <WorkspaceClub
+        club={sel} myRole={sel.myRole} tab={tab} setTab={setTab}
+        apps={apps[sel.id]||[]} reqs={reqs[sel.id]||[]} announcements={announcements[sel.id]||[]}
+        onBack={()=>setSel(null)}
+        onApprove={id=>approve(sel.id,id)} onDecline={id=>decline(sel.id,id)}
+        onSubmitRequest={()=>setShowSubmit(true)}
+        onSendAnnouncement={text=>sendAnnouncement(sel.id,text)}
+      />
+      {showSubmit && <SubmitActivityModal clubs={myClubs} onClose={()=>setShowSubmit(false)} onSubmit={submitRequest}/>}
+    </>
   );
 };
 
