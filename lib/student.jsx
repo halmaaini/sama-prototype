@@ -38,7 +38,7 @@ const WebPortal = () => {
     setMyRegs(prev => { const n = {...prev}; delete n[activityId]; return n; });
   };
 
-  const tabs = [["home","Home"],["explore","Explore"],["my","My activities"],["volunteering","Volunteering"],["certs","Certificates"],["clubs","Clubs"]];
+  const tabs = [["home","Home"],["explore","Explore"],["my","My activities"],["volunteering","Volunteering"],["certs","Certificates"],["clubs","Clubs"],["workspace","Workspace"]];
   return (
     <div className="w-[960px] rounded-[14px] overflow-hidden border hairline shadow-float bg-white shrink-0">
       <div className="h-10 bg-[var(--ink)] flex items-center gap-3 px-4 text-white">
@@ -59,6 +59,7 @@ const WebPortal = () => {
         {page === "volunteering" && <WebVolunteering myRegs={myRegs} onRegister={register}/>}
         {page === "certs"        && <WebCertificates/>}
         {page === "clubs"        && <WebClubs/>}
+      {page === "workspace"    && <WebWorkspace/>}
       </div>
       {ticketModal && <QRTicketModal activity={ticketModal} onClose={() => setTicketModal(null)}/>}
       {registerModal && (
@@ -893,6 +894,244 @@ const QRTicketModal = ({ activity, onClose }) => {
         <div className="px-6 pb-5 flex gap-2">
           <Btn variant="outline" className="flex-1" icon={Icon.Download} onClick={() => { toast.push({ text:"Ticket saved as PDF", icon:Icon.CheckCircle }); onClose(); }}>Save PDF</Btn>
           <Btn variant="outline" className="flex-1" icon={Icon.Share} onClick={() => toast.push({ text:"Ticket link copied to clipboard" })}>Share link</Btn>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── Workspace tab — club officer management ── */
+const WebWorkspace = () => {
+  const [applications, setApplications] = React.useState([
+    { id:"wa1", name:"Khalid Al-Falasi",  sid:"202402011", dept:"Medicine",    club:"CS Club",     clubColor:"#3a3dd9", reason:"Keen to learn Python and contribute to projects",          applied:"Nov 1, 2025" },
+    { id:"wa2", name:"Nour Al-Rashidi",   sid:"202401654", dept:"Engineering", club:"CS Club",     clubColor:"#3a3dd9", reason:"Looking to expand my programming skills with peers",       applied:"Nov 2, 2025" },
+    { id:"wa3", name:"Hessa Al-Dhaheri",  sid:"202402198", dept:"Science",     club:"Debate Club", clubColor:"#0a7a78", reason:"Interested in competitive debating and public speaking",   applied:"Nov 3, 2025" },
+  ]);
+  const [activityRequests, setActivityRequests] = React.useState([
+    { id:"wr1", title:"Python Bootcamp",               club:"CS Club",     type:"Program",      submitted:"Oct 1, 2025",  status:"Approved"                 },
+    { id:"wr2", title:"Startup Pitch Night",            club:"CS Club",     type:"Event",        submitted:"Oct 28, 2025", status:"In coordinator review"    },
+    { id:"wr3", title:"Regional Debate Championship",   club:"Debate Club", type:"Event",        submitted:"Oct 30, 2025", status:"Pending manager approval" },
+  ]);
+  const [showSubmitModal, setShowSubmitModal] = React.useState(false);
+  const toast = useToast();
+
+  const myClubs = [
+    { id:"c1", name:"CS Club",     color:"#3a3dd9", role:"Vice President", members:24 },
+    { id:"c2", name:"Debate Club", color:"#0a7a78", role:"Secretary",      members:18 },
+  ];
+
+  const pendingByClub = (name) => applications.filter(a => a.club === name).length;
+
+  const approve = (id) => {
+    setApplications(prev => prev.filter(a => a.id !== id));
+    toast.push({ text:"Application approved · welcome email sent", icon:Icon.CheckCircle });
+  };
+  const decline = (id) => {
+    setApplications(prev => prev.filter(a => a.id !== id));
+    toast.push({ text:"Application declined" });
+  };
+  const submitRequest = (data) => {
+    setActivityRequests(prev => [{ id:`wr${Date.now()}`, title:data.title, club:data.club, type:data.type, submitted:"Just now", status:"In coordinator review" }, ...prev]);
+    setShowSubmitModal(false);
+    toast.push({ text:`Request submitted · ${data.title}`, icon:Icon.CheckCircle });
+  };
+
+  const statusTone = { "Approved":"green", "In coordinator review":"amber", "Pending manager approval":"indigo", "Rejected":"red", "Draft":"slate" };
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <div className="text-[16px] font-semibold">Good morning, Fatima</div>
+          <div className="text-[12px] text-[var(--mute)] mt-0.5">Club officer workspace · {myClubs.length} clubs · {applications.length} pending application{applications.length !== 1 ? "s" : ""}</div>
+        </div>
+        <Btn variant="default" icon={Icon.Plus} onClick={() => setShowSubmitModal(true)}>Submit activity request</Btn>
+      </div>
+
+      <div className="grid grid-cols-[1fr,300px] gap-5">
+        {/* Left */}
+        <div className="space-y-5">
+          {/* Pending applications */}
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">Pending applications · {applications.length}</div>
+            {applications.length === 0 ? (
+              <div className="bg-white border hairline rounded-[10px] p-6 text-center">
+                <Icon.CheckCircle width={24} height={24} className="text-[var(--ok)] mx-auto mb-2"/>
+                <div className="text-[12px] font-medium">All caught up</div>
+                <div className="text-[11.5px] text-[var(--mute)] mt-1">No pending membership applications across your clubs.</div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {applications.map(app => (
+                  <div key={app.id} className="bg-white border hairline rounded-[10px] p-4 flex items-start gap-3">
+                    <Avatar name={app.name} size={34}/>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <div className="text-[13px] font-semibold">{app.name}</div>
+                        <span className="text-[11px] text-[var(--mute)] font-mono">{app.sid}</span>
+                        <Chip tone="slate">{app.dept}</Chip>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <div className="w-2 h-2 rounded-full shrink-0" style={{background:app.clubColor}}/>
+                        <span className="text-[11.5px] text-[var(--mute)]">{app.club} · Applied {app.applied}</span>
+                      </div>
+                      <div className="text-[12px] text-[var(--ink-2)] italic mt-1.5">"{app.reason}"</div>
+                    </div>
+                    <div className="flex gap-1.5 shrink-0">
+                      <Btn variant="outline" size="sm" icon={Icon.X} onClick={() => decline(app.id)}>Decline</Btn>
+                      <Btn variant="default" size="sm" icon={Icon.Check} onClick={() => approve(app.id)}>Approve</Btn>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Activity requests */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)]">Activity requests</div>
+              <button onClick={() => setShowSubmitModal(true)} className="text-[11.5px] text-[var(--accent)] hover:underline flex items-center gap-1">
+                <Icon.Plus width={11} height={11}/>New request
+              </button>
+            </div>
+            <div className="bg-white border hairline rounded-[10px] overflow-hidden">
+              <table className="w-full text-[12.5px]">
+                <thead className="bg-[#fafafa] border-b hairline-2 text-left text-[var(--mute)]">
+                  <tr className="[&>th]:px-4 [&>th]:py-2.5 [&>th]:font-medium">
+                    <th>Activity</th><th>Club</th><th>Type</th><th>Submitted</th><th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {activityRequests.map(r => (
+                    <tr key={r.id} className="border-b hairline-2 last:border-0 hover:bg-[#fafafa]">
+                      <td className="px-4 py-2.5 font-medium">{r.title}</td>
+                      <td className="px-4 py-2.5 text-[var(--mute)]">{r.club}</td>
+                      <td className="px-4 py-2.5"><TypeChip type={r.type}/></td>
+                      <td className="px-4 py-2.5 text-[var(--mute)] text-[11.5px]">{r.submitted}</td>
+                      <td className="px-4 py-2.5"><Chip tone={statusTone[r.status] || "slate"}>{r.status}</Chip></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        {/* Right */}
+        <div className="space-y-4">
+          {/* Officer roles */}
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">My officer roles</div>
+            {myClubs.map(club => (
+              <div key={club.id} className="bg-white border hairline rounded-[10px] overflow-hidden mb-2">
+                <div className="h-1.5 w-full" style={{background:club.color}}/>
+                <div className="p-4 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-[8px] flex items-center justify-center text-white text-[13px] font-semibold shrink-0" style={{background:club.color}}>
+                    {club.name.split(" ").filter(w => /[A-Z]/.test(w[0])).slice(0,2).map(w=>w[0]).join("")}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-semibold truncate">{club.name}</div>
+                    <div className="text-[11.5px] text-[var(--mute)]">{club.role} · {club.members} members</div>
+                  </div>
+                  {pendingByClub(club.name) > 0 && <Chip tone="amber">{pendingByClub(club.name)} pending</Chip>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Budget snapshot */}
+          <div>
+            <div className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] mb-2">CS Club · budget</div>
+            <div className="bg-white border hairline rounded-[10px] p-4 space-y-2.5">
+              <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Approved</span><span className="font-semibold">AED 9,000</span></div>
+              <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Spent</span><span className="font-semibold text-[var(--ok)]">AED 5,240</span></div>
+              <Progress value={58} color="var(--ok)"/>
+              <div className="flex justify-between text-[12.5px]"><span className="text-[var(--mute)]">Remaining</span><span className="font-semibold">AED 3,760</span></div>
+              <div className="text-[10.5px] text-[var(--mute-2)] pt-1 border-t hairline-2">Read-only · contact your coordinator for adjustments</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {showSubmitModal && <SubmitActivityModal clubs={myClubs} onClose={() => setShowSubmitModal(false)} onSubmit={submitRequest}/>}
+    </div>
+  );
+};
+
+const SubmitActivityModal = ({ clubs, onClose, onSubmit }) => {
+  const [title,    setTitle]    = React.useState("");
+  const [type,     setType]     = React.useState("Event");
+  const [club,     setClub]     = React.useState(clubs[0]?.name || "");
+  const [date,     setDate]     = React.useState("");
+  const [desc,     setDesc]     = React.useState("");
+  const [capacity, setCapacity] = React.useState("");
+  const canSubmit = title && type && club && date;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-white rounded-[16px] shadow-float w-[520px] overflow-hidden max-h-[90vh] overflow-y-auto thin-scroll">
+        <div className="px-5 py-4 border-b hairline flex items-center justify-between">
+          <div>
+            <div className="text-[15px] font-semibold">Submit activity request</div>
+            <div className="text-[11.5px] text-[var(--mute)] mt-0.5">Sent to your Club Coordinator for review</div>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 rounded-[7px] hover:bg-[#eeefef] flex items-center justify-center">
+            <Icon.X width={13} height={13}/>
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Activity name <span className="text-[var(--bad)]">*</span></label>
+            <input type="text" placeholder="e.g. Annual Hackathon 2026" value={title} onChange={e => setTitle(e.target.value)}
+              className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Club <span className="text-[var(--bad)]">*</span></label>
+              <select value={club} onChange={e => setClub(e.target.value)}
+                className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)] cursor-pointer">
+                {clubs.map(c => <option key={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Type <span className="text-[var(--bad)]">*</span></label>
+              <select value={type} onChange={e => setType(e.target.value)}
+                className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)] cursor-pointer">
+                {["Event","Program","Volunteering","External"].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Date <span className="text-[var(--bad)]">*</span></label>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)}
+                className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+            </div>
+            <div>
+              <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Expected attendees</label>
+              <input type="number" placeholder="e.g. 50" value={capacity} onChange={e => setCapacity(e.target.value)}
+                className="w-full h-9 px-3 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)]"/>
+            </div>
+          </div>
+          <div>
+            <label className="text-[11px] uppercase tracking-wider font-semibold text-[var(--mute)] block mb-1.5">Description / notes</label>
+            <textarea rows={3} placeholder="Briefly describe the activity, goals, and any special requirements…"
+              value={desc} onChange={e => setDesc(e.target.value)}
+              className="w-full px-3 py-2 rounded-[7px] border hairline text-[12.5px] bg-white focus:outline-none focus:border-[var(--accent)] resize-none"/>
+          </div>
+          <div className="p-3 rounded-[8px] bg-[var(--accent-wash)] border border-[var(--accent)]/20 text-[11.5px] text-[var(--ink-2)] flex items-start gap-2">
+            <Icon.Sparkle width={14} height={14} className="text-[var(--accent)] mt-0.5 shrink-0"/>
+            Your Club Coordinator will review this, add details, and submit for final approval. Track progress in the table above.
+          </div>
+        </div>
+        <div className="px-5 pb-4 flex justify-end gap-2">
+          <Btn variant="outline" onClick={onClose}>Cancel</Btn>
+          <Btn variant="default" icon={Icon.Send}
+            className={cx(!canSubmit && "opacity-50 pointer-events-none")}
+            onClick={() => canSubmit && onSubmit({ title, type, club, date, desc, capacity })}>
+            Submit request
+          </Btn>
         </div>
       </div>
     </div>

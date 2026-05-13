@@ -48,9 +48,54 @@ A web + PWA platform for a university Student Activities & Welfare department to
 
 ---
 
+## 2.5 Platform surfaces
+
+SAMA is a **hybrid platform**: two distinct UI surfaces backed by a single shared data layer and API. They are not separate systems — they read and write the same database, the same activity records, the same club data. The distinction is purely at the surface (UI/UX and access entry point).
+
+### The two surfaces
+
+| Surface | What it is | Design philosophy | Who uses it |
+|---------|-----------|-------------------|-------------|
+| **SAMA** | Internal staff tool | Desktop-first, information-dense, multi-panel layouts | Manager, Coordinator, Club Coordinator, Nurse, Counselor, Club Advisor |
+| **Student Portal** | Student-facing product | Mobile-first PWA, simplified navigation, task-oriented | All enrolled students (including those who also hold club officer roles) |
+
+### Single SSO — one identity, routed to the right surface
+
+There is a single university SSO. Every user authenticates with their university credentials once. The system then routes them to the correct surface based on their roles:
+
+```
+University SSO login
+        │
+        ├─ Has staff role only?      → SAMA
+        │
+        ├─ Has student role only?    → Student Portal
+        │
+        └─ Has BOTH?                 → Access to both surfaces
+                                       (exact UX TBD in design —
+                                        e.g. a surface chooser or
+                                        separate entry points)
+```
+
+No separate credentials exist. One identity per person, regardless of which surface they access.
+
+### Part-time student/staff edge case
+
+A student who is also employed part-time in a staff role (e.g. a student working part-time as a Coordinator or administrative assistant) holds both a student identity and a staff role. This person:
+- Authenticates once via SSO.
+- Has access to **both** the Student Portal (as a student) and SAMA (under their staff role).
+- The auth layer must detect this dual-role scenario and present the appropriate access rather than routing exclusively to one surface.
+
+This is a known edge case that must be explicitly handled in the authentication and role-routing layer. The exact UX (e.g. a surface-switcher in the nav, separate bookmarked URLs, or a post-login selector) is to be determined during design.
+
+### Shared backend
+
+Both surfaces call the same API and operate on the same data. An activity submitted by a Club Leader via the Student Portal immediately surfaces as a Draft in SAMA for the Club Coordinator. Status updates written in SAMA (approval decisions, etc.) are immediately visible to the student in the Student Portal. There is no sync lag or data duplication.
+
+---
+
 ## 3. Roles & permissions
 
-**Roles are additive** — a staff member can hold multiple roles simultaneously (e.g. Coordinator + Nurse, or Coordinator + Club Coordinator for two clubs). Permissions from each role are **module-scoped**: a Nurse's access to patient records activates only inside the Health module; a Coordinator's approval authority activates only in the Activities module. **Manager is the sole exception** — it is a superset role with full access across all modules and all data in the department, with no module boundary. Roles are assigned by the Manager from the Settings page; no other role can assign roles.
+**Roles are additive** — any authenticated employee can hold multiple roles simultaneously (e.g. Coordinator + Nurse, or Coordinator + Club Coordinator for two clubs). Permissions from each role are **module-scoped**: a Nurse's access to patient records activates only inside the Health module; a Coordinator's approval authority activates only in the Activities module. **Manager is the sole exception** — it is a superset role with full access across all modules and all data in the department, with no module boundary. Roles are assigned by the Manager from the Settings page; no other role can assign roles.
 
 > **v1 simplification**: with one department, "department-scoped" effectively means "system-wide". The schema and authorization checks are designed for multi-department from day one (see §4.0).
 
@@ -58,16 +103,25 @@ A web + PWA platform for a university Student Activities & Welfare department to
 
 | Role | Module scope | Primary responsibilities |
 |------|-------------|--------------------------|
-| **Manager** | All modules, department-wide | Superset of all roles. Strategy, final approvals on all activities and club requests, budget oversight, reports, role assignment, sees all data including welfare. |
-| **Coordinator** | Activities module · assigned activities & clubs | Plan, submit for approval, run, edit, close activities; manage rosters for assigned clubs. |
-| **Club Coordinator** | Activities module · assigned clubs only | First-step approver for club-created activity requests; club roster and budget management for assigned clubs. Assigned per-club by Manager (many:many — a club can have multiple Club Coordinators; a Coordinator can be Club Coordinator for multiple clubs). |
-| **Club Advisor** | Assigned clubs · read-only observer | Academic or professional oversight of assigned clubs. Receives FYI notifications on key events. No approval authority in v1. Can be internal staff or external (faculty, external professionals). External Club Advisor accounts are a v2 feature. |
+| **Manager** | All modules, department-wide | Superset of all roles. Strategy, final approvals on all activities and club requests, budget oversight, reports, role assignment, sees all data including welfare. [^1] |
+| **Coordinator** | Activities module · assigned activities | Plan, submit for approval, run, edit, close activities; manage rosters for assigned clubs. |
+| **Club Coordinator** | Clubs (assigned) | First-step approver for club-created activity requests; club roster and budget management for assigned clubs. Assigned per-club by Manager (many:many — a club can have multiple Club Coordinators; a Coordinator can be Club Coordinator for multiple clubs). |
+| **Club Advisor** | Clubs (assigned, notify-only) | Academic or professional oversight of assigned clubs. Receives FYI notifications on key events. No approval authority in v1. Can be internal employees or external (faculty, external professionals). External Club Advisor accounts are a v2 feature. |
 | **Employee** | Assigned services/activities only | Run sessions, take attendance, conduct counseling or health appointments, log walk-in visits. |
 | **Nurse** | Health module only | Log visits, manage appointment slots, view and update health records for assigned students. Subset of Employee capabilities, module-scoped. |
 | **Counselor** | Counseling module only | Manage appointment slots, conduct sessions, record notes, view referrals. Subset of Employee capabilities, module-scoped. |
 | **Club Leader** | Own club only | Create and submit club-sponsored activity requests; enter planned budget; manage own club's activity submissions. A student role granted by the Manager or Club Coordinator. |
 | **Student** | Tenant-scoped (self-service) | Discover, register, cancel, attend, view history, download certificates, book welfare appointments — across any department's offerings. |
 | *(future)* **TenantAdmin** | Tenant-wide | Provisions departments, enables/disables modules per department, manages tenant-level settings. Out of scope for v1; provisioning is install-time. |
+
+**Student Portal roles** — the following are not SAMA roles and do not appear in the §3.2 SAMA permission matrix. They govern access within the Student Portal only.
+
+| Role | Surface | Description |
+|------|---------|-------------|
+| **Student** | Student Portal only | Any currently enrolled student. Access to the six standard Student Portal tabs: Home, Explore, My Activities, Volunteering, Certificates, Clubs. |
+| **Club Officer** | Student Portal only | A student who holds any leadership position in a club (Leader, Vice President, Secretary, Treasurer, or any other designated officer role). Unlocks the elevated "Workspace" tab in the Student Portal. **V1: flat permissions** — all club officers have identical access within "Workspace" regardless of their specific officer title. Differentiated officer permissions are deferred to V2. Club Officers do not receive SAMA access by virtue of their club role. |
+
+[^1]: Manager implicitly holds every role's permissions across all modules.
 
 ### 3.2 Permission matrix (high level)
 
@@ -88,7 +142,7 @@ Columns show the **minimum role** required. Manager inherits all. Club Coordinat
 | Raise/lower capacity | ✓ | ✓ (own) | ✓ (assigned club) | – | – | – | – |
 | Take attendance | ✓ | ✓ (own) | ✓ (assigned club) | – | ✓ (assigned) | – | – |
 | Issue/regenerate certificate | ✓ | ✓ (own) | ✓ (assigned club) | – | – | – | view/download own |
-| View activity roster | ✓ all | own only | assigned club only | assigned club (read) | assigned only | own club | – |
+| View activity roster | ✓ all | own only | assigned club only | assigned club (view only) | assigned only | own club | – |
 | **— Clubs —** | | | | | | | |
 | Create / edit club | ✓ | – | – | – | – | – | – |
 | Assign Club Coordinator to club | ✓ | – | – | – | – | – | – |
@@ -97,9 +151,11 @@ Columns show the **minimum role** required. Manager inherits all. Club Coordinat
 | Grant Club Leader status | ✓ | ✓ (assigned) | ✓ (assigned clubs) | – | – | – | – |
 | View club page & activity list | ✓ | ✓ (assigned) | ✓ (assigned) | ✓ (assigned, read) | – | ✓ (own club) | ✓ (public) |
 | **— Budget —** | | | | | | | |
-| Record budget transactions | ✓ | ✓ (own activity) | ✓ (assigned club) | – | – | ✓ (own club) | – |
+| Create / edit budget suggestion (Draft state) | ✓ | ✓ (own activity) | ✓ (assigned club) | – | – | ✓ (own club drafts) | – |
+| Edit budget (Draft and Submitted states) | ✓ | ✓ (own activity) | ✓ (assigned club) | – | – | – | – |
+| Record budget transactions | ✓ | ✓ (own activity) | ✓ (assigned club) | – | – | – | – |
 | Approve budget change request | ✓ | – | – | – | – | – | – |
-| View budget | ✓ all | own only | assigned club only | assigned club (read) | – | own club only | – |
+| View budget | ✓ all | own only | assigned club only | view only | – | own club only | – |
 | **— Welfare (Health & Counseling) —** | | | | | | | |
 | Create appointment slot | ✓ | – | – | – | ✓ (own calendar) | – | – |
 | Book appointment (on behalf) | ✓ | – | – | – | – | – | ✓ (own) |
@@ -114,11 +170,14 @@ Columns show the **minimum role** required. Manager inherits all. Club Coordinat
 | Assign roles (Settings page) | ✓ | – | – | – | – | – | – |
 
 ### 3.3 Notes
+- **Scope of §3.2 permission matrix**: the matrix above covers **SAMA only** — the internal staff tool. The Student Portal has its own permission model, defined in §13 (Student Portal). Student and Club Officer roles are not represented in §3.2 because they do not access SAMA.
+- **Part-time student/staff edge case**: a user who holds both a student identity and a SAMA staff role (e.g. a student employed part-time as a Coordinator) must be handled explicitly in the auth layer. They authenticate once and receive access to both surfaces. See §2.5 for routing logic.
 - **Manager-as-Coordinator**: Manager can author activities directly. Their submissions auto-approve (no self-approval bottleneck). Manager is always the final approver — they cannot be the Club Coordinator in the approval chain for their own department's club activities (no self-approval).
 - **Additive roles**: a user can hold multiple roles simultaneously. The effective permission set is the union of all their role permissions. Example: a user who is both Coordinator and Nurse gets Coordinator permissions in the Activities module and Nurse permissions in the Health module.
 - **Module scoping**: each non-Manager role is bounded to its module. Holding a Nurse role does not grant access to Activities data, and holding a Coordinator role does not grant access to health records. The module boundary is enforced at the authorization layer, not just the UI.
 - **Club Coordinator vs. Coordinator**: a plain Coordinator manages activities they created. A Club Coordinator manages activities submitted by the club they are assigned to — these are different ownership relationships. A user can be both (e.g. Coordinator for their own events and Club Coordinator for two clubs).
-- **Club Advisor (external)**: in v1, Club Advisors are internal staff with a read-only assignment. External Club Advisor accounts (for faculty or professionals outside the department) are a v2 feature.
+- **Club Advisor permissions**: Club Advisor = Activities (view only for assigned clubs), Budget (view only for assigned clubs), Clubs (view assigned clubs only), Reports (none). They receive notifications but take no approval action in v1.
+- **Club Advisor (external)**: in v1, Club Advisors are internal authenticated employees with a read-only assignment. External Club Advisor accounts (for faculty or professionals outside the department) are a v2 feature.
 - **Employee, Nurse, Counselor**: Employee is the base kind for non-Coordinator, non-Manager staff. Nurse and Counselor are named role designations that grant specific module-scoped capabilities on top of the base Employee kind.
 - **"Own" scoping** for Coordinators: per-activity ownership (creator + co-coordinators) and per-club assignment. Does not extend to other coordinators' activities or unassigned clubs.
 - **Student "view own"**: students always see their own registrations, attendance, certificates, appointments, and visit summaries.
@@ -152,9 +211,9 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 ### 4.1 User & identity
 - **User**: id, tenant_id, kind {student, staff, guest}, full_name, email, phone, status (active/inactive), created_at, last_login_at, photo_url, photo_source {feed, student_upload, none}, photo_moderation_status {approved, pending, rejected}.
   - For students (`kind = student`): student_id, program, year, gender, eligibility_attributes (JSON for flexible filters). Students have NO entries in DepartmentRole — they are tenant-scoped consumers.
-  - For staff (`kind = staff`, Manager/Coordinator/Employee): one or more entries in DepartmentRole.
+  - For employees (`kind = staff`, Manager/Coordinator/Employee/Nurse/Counselor/Club Coordinator): one or more entries in DepartmentRole.
   - For guests (`kind = guest`): guest_type {faculty, external, parent, other}. No DepartmentRole, no student_id, no password. See §7.1.6 for the guest registration flow. Email-verified; access is via magic-link only (no main-UI login).
-  - Auth: local password (v1, students/staff only) or Microsoft SSO (later phase). Guests have no password.
+  - Auth: local password (v1, students and authenticated employees only) or Microsoft SSO (later phase). Guests have no password.
 - **Profile photo handling**:
   - Default source is the university photo feed (delivered by IT at provisioning and on a periodic refresh). When the feed has a photo, `photo_source = feed` and `photo_moderation_status = approved` automatically.
   - Student can upload an override via their profile page (crop tool). Uploaded photo enters `pending` moderation; only Manager (or a delegated Coordinator) can approve. Approved upload → `photo_source = student_upload`. Rejected → falls back to the feed photo.
@@ -162,13 +221,13 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
   - Photo is displayed on Employee check-in screen (visual verification next to the QR scan), on the student's own profile, and on the staff-facing student view. It is NOT shown in public catalog (§6.1) or to other students.
 - **Role**: per-department; see DepartmentRole above. Internal lookup also exposes a derived "primary role" for display (the highest role across departments).
 - **Assignment types** (all department-scoped — the activity/club/service lives in one department):
-  - `ActivityAssignment`: user_id, activity_id, role {coordinator, employee} — links a staff member to a specific activity as owner/co-coordinator or operational employee.
-  - `ClubCoordinatorAssignment`: user_id, club_id, assigned_at, assigned_by — links an internal staff member as first-step approver and manager for a club. Many:many (a club can have multiple; a user can be assigned to multiple clubs). Any assigned coordinator can act on a pending request (OR logic).
-  - `ClubAdvisorAssignment`: user_id, club_id, assigned_at, assigned_by, notes — links an internal staff member as a read-only observer for a club. Many:many. External advisor accounts are v2.
-  - `WelfareAssignment`: user_id, service_id, role {counselor, nurse, health_staff} — links a staff member to a specific welfare service (Health clinic, Counseling centre, etc.).
+  - `ActivityAssignment`: user_id, activity_id, role {coordinator, employee} — links an authenticated employee to a specific activity as owner/co-coordinator or operational employee. **Assigned by**: Coordinator (own activities) or Manager. **Cardinality**: one owner coordinator + optional co-coordinators + optional employees per activity (many employees can be assigned to one activity). **Permission granted**: coordinator role grants edit/manage/close rights on that activity; employee role grants attendance-taking and session-management rights on that activity.
+  - `ClubCoordinatorAssignment`: user_id, club_id, assigned_at, assigned_by — links an internal authenticated employee as first-step approver and manager for a club. **Assigned by**: Manager only. **Cardinality**: many:many (a club can have multiple Club Coordinators; an employee can be assigned to multiple clubs). Any assigned coordinator can act on a pending request (OR logic). **Permission granted**: Club Coordinator role scoped to that club — first-step approval authority, club roster and budget management, write access to club activity pipeline.
+  - `ClubAdvisorAssignment`: user_id, club_id, assigned_at, assigned_by, notes — links an internal authenticated employee as a read-only observer for a club. **Assigned by**: Manager only. **Cardinality**: many:many. External advisor accounts are v2. **Permission granted**: Club Advisor role scoped to that club — view-only access to club activities, roster, and budget; FYI notifications on key club events; no approval authority.
+  - `WelfareAssignment`: user_id, service_id, role {counselor, nurse, health_staff} — links an authenticated employee to a specific welfare service (Health clinic, Counseling centre, etc.). **Assigned by**: Manager. **Cardinality**: many:many (a service can have multiple assigned employees; an employee can be assigned to multiple services). **Permission granted**: manage-level access to the specific welfare module's records (counseling notes, health records, or visit logs) scoped to the assigned service. Note: "Manager-Welfare" is not a separate role — the Manager role inherently has oversight access to all welfare records across all services without a WelfareAssignment.
 
 ### 4.2 Activity & sessions
-- **Activity**: id, tenant_id, department_id, type {Event, Program, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for program), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), self_checkin_enabled (bool, default false), is_public (bool, default false), cert_hours (decimal, default = sum of session durations; manually editable), state (see §5), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete), version (optimistic locking).
+- **Activity**: id, tenant_id, department_id, type {Event, Program, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for program), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), self_checkin_enabled (bool, default false), is_public (bool, default false), cert_hours (decimal, default = sum of session durations; manually editable), state (see §5), coordinator_approval_phase ENUM('pending', 'coordinator_approved') NULLABLE (non-null only when status='submitted' and trigger condition is met — i.e. the creator has the Club Leader role for the linked club; null for all standard/Coordinator-created activities), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete), version (optimistic locking).
 - **Session** (for multi-session programs/workshops): id, activity_id, sequence, start_at, end_at, location, employee_in_charge_id, capacity (nullable; per-session cap if `per_session_capacity_enabled`).
 - **SessionSignup** (only when `per_session_signup_enabled`): id, session_id, registration_id, signed_up_at. Indicates intent to attend; does not gate attendance.
 - **EligibilityRule**: e.g. allowed_programs[], allowed_years[], allowed_genders[], custom_filters[]. Combined with AND.
@@ -258,11 +317,11 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 | **Published** | Coordinator/Manager | Coordinator publishes after approval. Now visible to students. |
 | **RegistrationOpen** | system | When `registration_opens_at` is reached (and Published). |
 | **RegistrationClosed** | system | When `registration_closes_at` reached or capacity hit + waitlist closed. |
-| **InProgress** | system | When `start_at` reached. Activity stays InProgress past `end_at` until manually closed (see §13.1). |
-| **Completed** | Coordinator (own) / Manager | **Manual close only.** Coordinator clicks "Close activity" → completion calc runs, surveys dispatch, certificates generate. See §13.1. |
+| **InProgress** | system | When `start_at` reached. Activity stays InProgress past `end_at` until manually closed (see §14.1). |
+| **Completed** | Coordinator (own) / Manager | **Manual close only.** Coordinator clicks "Close activity" → completion calc runs, surveys dispatch, certificates generate. See §14.1. |
 | **Cancelled** | Coordinator (own) / Manager | Manual; sends notifications, marks all registrations Cancelled. |
 | **Archived** | Manager / system | After retention period (rule TBD; retention deferred). |
-| **(Reopen)** | Coordinator (own) / Manager | A Completed activity can be reopened with reason → state returns to InProgress. See §13.2. |
+| **(Reopen)** | Coordinator (own) / Manager | A Completed activity can be reopened with reason → state returns to InProgress. See §14.2. |
 
 ### 5.2 Transition rules
 
@@ -301,7 +360,7 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - Budget is optional; activities with no budget entered behave as zero-budget.
   - All activity types have a Budget tab; only activities in Approved or Active state allow transaction recording.
   - **Registration fee validation**: if a detailed budget has student-funded line items, the system compares the implied per-student cost against the registration fee set on the activity. If they do not match, a warning is shown: *"Budget shows AED 60/student but registration fee is set to AED 50 — update one to keep them aligned."* The fields remain independent; neither auto-updates the other.
-  - For Club-organised activities: the Club Leader enters the planned amount at creation; the Manager sets the approved amount at approval (same pattern as the activity approval itself).
+  - For Club-organised activities: the Club Leader enters the planned amount at creation as a budget suggestion (write access in Draft state only); the Club Coordinator may adjust it before submission; the Manager sets the approved amount at final approval. See §12.9 for the full budget flow.
 - Activity may carry **Prerequisites** (must have Completed activity X).
 - Activity may carry **Eligibility** (year, program, gender, custom).
 - File **Attachments** (poster, agenda, consent forms, etc.).
@@ -333,27 +392,37 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - Manager can: **Approve**, **Reject (with reason)**, or **Request changes (with comment)** which returns to Draft.
 - Manager-authored activities skip Submitted: Draft → Approved on save.
 - Approved activity becomes visible to its owner; Coordinator clicks **Publish** to expose it to students.
+- **Note**: activities not linked to a club, or club activities not created by a Club Leader, always follow this single-step flow: Coordinator reviews → Manager approves.
 
 #### 6.2.2 Club activity approval (Club Leader-created) — two-step
 Club-created activities go through an additional first step before reaching the Manager.
 
+- **Trigger condition**: the two-step flow is triggered when `created_by` has the Club Leader role for the linked club. A Coordinator who creates an activity on behalf of a club (i.e. the creator is not a Club Leader for that club) follows the standard one-step flow in §6.2.1.
+- **Submission surface**: Club Leaders submit activity requests from the **Student Portal** ("Workspace" tab) — they do not access SAMA. The submission creates a Draft record in the backend that immediately surfaces in SAMA for the assigned Club Coordinator(s) to pick up.
+
 ```
-Club Leader submits
+Club Leader submits via Student Portal ("Workspace" tab)
+      ↓  (Draft created in backend → surfaces in SAMA as Submitted)
       ↓  (activity enters Submitted — Phase 1: awaiting Club Coordinator)
-All assigned Club Coordinators notified simultaneously
+All assigned Club Coordinators notified simultaneously (in SAMA)
       ↓  (any one Club Coordinator acts — OR logic, first to act resolves)
 Club Coordinator: Approve → Phase 2 | Reject → Draft | Request changes → Draft
       ↓  (on Coordinator approval: Manager notified, activity enters Phase 2)
 Manager: Approve (final) → Approved | Reject → Draft | Request changes → Draft
       ↓  (on Manager final approval)
 Club Advisors receive FYI notification
-Club Leader receives approval notification → can Publish
+Club Leader receives approval notification in Student Portal → can Publish
 ```
+
+- **Club Leader status visibility**: the Club Leader tracks the status of their submission entirely in the Student Portal "Workspace" tab. They see human-readable status updates (e.g. "Your request is in coordinator review", "Approved — awaiting publication", "Changes requested: [reason]"). They never open SAMA.
 
 - **Manager visibility**: Manager sees all Submitted activities from the moment of submission (Phase 1 included), tagged "Awaiting Club Coordinator" in their Approvals inbox. Manager can override and approve directly at any time, bypassing Phase 1.
 - **Approval inbox**: club requests appear in the same Approvals inbox used for standard activities. They are tagged with the club name so Coordinators and Managers can filter by club.
 - **No intermediate state in the state machine**: the Submitted state carries a `coordinator_approval_phase` marker (pending / coordinator_approved) to drive the two-step UI. The state enum itself does not change — the activity remains in Submitted through both phases.
-- **Rejection at either step**: returns the activity to Draft with a note from the rejecting party. Club Leader can edit and resubmit.
+- **Notifications on Club Leader submission**: on submission by a Club Leader, notifications go to: (a) all Club Coordinators assigned to that club, and (b) the Club Advisor(s) assigned to that club (for awareness only — not an action item for Advisors).
+- **Notification on Coordinator step-1 approval**: after a Club Coordinator approves step 1, the Manager receives a notification: "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval."
+- **Rejection at step 1 (Coordinator)**: activity returns to Draft with the Coordinator's rejection note. Club Leader can edit and resubmit.
+- **Rejection at step 2 (Manager)**: activity returns to Submitted with `coordinator_approval_phase = coordinator_approved` so the Club Leader can see the Manager's rejection reason without needing to redo the coordinator review step. The Club Leader can revise and the Coordinator can re-approve (or the Manager may choose to approve directly on resubmission).
 - **Club Advisor**: not in the approval chain. Receives a read-only FYI notification after Manager final approval.
 
 ### 6.3 Publishing & discovery
@@ -448,7 +517,7 @@ When the activity's `allow_guest_registration = true`, non-students can register
 
 **Audit & reporting**: every guest registration is audit-logged. Guest rosters and counts show on the activity dashboard alongside student counts (separated: "Students: 42 / Guests: 8").
 
-**Privacy & profile**: guests do not appear in cross-activity student search, do not get a "student-style" profile page, and are excluded from internal dashboards that focus on student engagement. Their data is retained per §14.11.
+**Privacy & profile**: guests do not appear in cross-activity student search, do not get a "student-style" profile page, and are excluded from internal dashboards that focus on student engagement. Their data is retained per §15.11.
 
 ### 7.2 Cancellation by student
 
@@ -499,7 +568,7 @@ When the activity's `allow_guest_registration = true`, non-students can register
 - Sign-up windows can be narrower than the activity's registration window (e.g. register at semester start, sign up for each lecture 24h before).
 
 **Per-session sign-up cancellation:**
-- Student can un-sign-up from a session anytime up to that session's `start_at`. Frees the seat in per-session capacity, allowing waitlist promotion at the session level (if implemented — see §18.3 gap).
+- Student can un-sign-up from a session anytime up to that session's `start_at`. Frees the seat in per-session capacity, allowing waitlist promotion at the session level (if implemented — see §19.3 gap).
 - Un-sign-up does NOT cancel the activity registration.
 
 **Attendance behavior — walk-ins allowed past capacity:**
@@ -593,7 +662,7 @@ When the activity's `allow_guest_registration = true`, non-students can register
 ### 8.4 Completion calculation
 - For programs: `present_count / total_sessions ≥ completion_threshold` → Completed.
 - For events/workshops: present at the (single) session → Completed.
-- Completion is **finalized at manual closure** (§13.1). Until then, "would-be" status is shown as preview only.
+- Completion is **finalized at manual closure** (§14.1). Until then, "would-be" status is shown as preview only.
 - Coordinator can manually flip a student's status with reason (audit-logged) before or after closure.
 - *(Deferred: deliverable-based completion not in v1.)*
 
@@ -619,9 +688,9 @@ When the activity's `allow_guest_registration = true`, non-students can register
 - For Campaign-type activities (which may not have sessions), `cert_hours` defaults to 0 and is staff-set if relevant.
 
 ### 9.2 Issuance
-- Auto-generated when a registration reaches **Completed** state — which only happens after the Coordinator manually closes the activity (see §13.1).
+- Auto-generated when a registration reaches **Completed** state — which only happens after the Coordinator manually closes the activity (see §14.1).
 - Generated as PDF, stored, with a unique **verification code** and a public verify URL.
-- **Survey gating** (default for any activity that issues certificates): the certificate is generated and exists, but the student cannot download/view it until they submit the standard post-activity survey (§13.3). Locked-state UI shows "Submit your feedback to unlock your certificate."
+- **Survey gating** (default for any activity that issues certificates): the certificate is generated and exists, but the student cannot download/view it until they submit the standard post-activity survey (§14.3). Locked-state UI shows "Submit your feedback to unlock your certificate."
 - **Override**: Coordinator (own) or Manager can release a certificate to a specific student without survey submission, with reason (audit-logged).
 - **Auto-release fallback**: 30 days post-closure, certificates auto-unlock regardless of survey status.
 - Anyone (without login) can paste the verification code on the public verify URL to confirm authenticity.
@@ -639,12 +708,14 @@ When the activity's `allow_guest_registration = true`, non-students can register
 ## 10. Module — Clubs
 
 ### 10.1 Lifecycle
-- Manager creates a Club: name, description, logo. Status = Active.
-- Club has a persistent presence (page visible to students and all internal staff).
-- Manager assigns staff to the club using two distinct roles (see §4.5 for data model):
-  - **Club Coordinator(s)**: internal staff who manage the club's activities, budget, and roster. First-step approvers for club activity requests. Many:many — a club can have multiple, a staff member can be Club Coordinator for multiple clubs.
-  - **Club Advisor(s)**: internal staff (v1) or external faculty/professionals (v2) with read-only observer access. Receive FYI notifications. Not in the approval chain. Many:many.
+- **Club formation**: Club creation requires Manager approval. A Club Leader submits a club formation request (name, description, proposed mission/scope); the Manager approves or rejects the request. On approval, the Manager creates the Club record: name, description, logo. Status = Active.
+- Club has a persistent presence (page visible to students and all internal authenticated employees).
+- Manager assigns authenticated employees to the club using two distinct roles (see §4.5 for data model):
+  - **Club Coordinator(s)**: internal authenticated employees who manage the club's activities, budget, and roster. First-step approvers for club activity requests. Many:many — a club can have multiple, an employee can be Club Coordinator for multiple clubs.
+  - **Club Advisor(s)**: internal authenticated employees (v1) or external faculty/professionals (v2) with read-only observer access. Receive FYI notifications. Not in the approval chain. Many:many.
 - Manager can update assignments at any time from the Club settings page or from the system Settings page.
+- **Club suspension**: Club Coordinator can suspend a club (sets status to inactive, pending Manager confirmation). Manager must confirm the suspension for it to take effect.
+- **Club archival**: Manager can permanently archive a club. Archived clubs retain all historical data (activities, memberships, budget records) but no new activity can be submitted and the club no longer appears in active listings.
 
 ### 10.2 Roster & membership roles
 - Students apply to join a club from the student portal, or are added directly by a Club Coordinator or Manager.
@@ -673,12 +744,43 @@ When the activity's `allow_guest_registration = true`, non-students can register
   - Members register once for the Program (via club membership → Club Coordinator can bulk-register the club roster). Attendance is tracked per weekly session as for any Program.
   - Completion threshold and certificate apply at term end (same Program flow).
 - Per-session sign-up is typically off for club meetings (the roster is the club roster, members come every week).
-- A new term = a new Program. Clone-from-closed (§15 Scenario M) makes the next term's setup one-click.
+- A new term = a new Program. Clone-from-closed (§16 Scenario M) makes the next term's setup one-click.
 - **Why Program-per-term rather than ad-hoc weekly events**: one budget, one roster, one certificate, one dashboard entry — operationally lighter and matches academic-term reality. A proper open-ended recurrence model (no end date) is deferred to v2.
 
-### 10.6 Reporting
+### 10.6 Club Leader data visibility
+- Club Leaders can view their own club's detail page, activity list, and member roster.
+- Club Leaders cannot see other clubs' member lists or budgets.
+- Club Leaders can view the pipeline of their own club's activity requests (draft, submitted, approved, rejected).
+
+### 10.7 Club metadata editing
+- Club metadata (name, description, meeting schedule, contact email) can be edited by the assigned Club Coordinator or Manager.
+- A Club Leader can propose changes via a free-text change request submitted to the Club Coordinator. The Coordinator reviews the request and applies the changes if appropriate.
+
+### 10.8 Membership requests
+- Students can apply to join a club from the student portal.
+- Membership requests are approved or rejected by the Club Coordinator assigned to that club, or by the Manager.
+- Club Leaders can view pending membership requests for their own club but cannot approve or reject them in v1.
+
+### 10.9 Reporting
 - Manager dashboard: number of active clubs, member counts, activity counts, Club Coordinator list, pending club requests.
 - Club Coordinator view: activity pipeline for assigned clubs, member roster, budget summary.
+
+### 10.10 Club Leader interface (Student Portal)
+
+Club Leaders, Vice Presidents, and all other club officers are students. They do not use SAMA at any point — everything described in this section happens via the **Student Portal** "Workspace" tab, which is unlocked for any student holding a club officer role.
+
+Everything described elsewhere in §10 from the Club Leader's perspective (submitting activity requests, viewing the club pipeline, reviewing membership applications) is accessed through the "Workspace" tab in the Student Portal, not through SAMA. Their submissions arrive in SAMA as Drafts; a Club Coordinator picks them up from there.
+
+**Workspace tab features (V1):**
+- Submit activity requests for their club (creates a Draft in SAMA)
+- Review and respond to incoming membership applications (approve/decline inline)
+- Track status of submitted activity requests (Draft → In coordinator review → Pending manager approval → Approved/Rejected)
+- View club budget snapshot (read-only — approved amount, spent, remaining)
+- View their officer roles across all clubs they lead
+
+**V1 flat permissions within "Workspace":** all club officers (Club Leader, Vice President, Secretary, Treasurer, and any other designated officer role) have identical access within the "Workspace" tab. Role differentiation within club leadership is deferred to V2.
+
+**Club Leader never touches SAMA.** If their submission is approved, they see the status update in the Student Portal. The Club Coordinator is responsible for adjusting, completing, and formally submitting the request in SAMA before it reaches the Manager.
 
 ---
 
@@ -686,7 +788,7 @@ When the activity's `allow_guest_registration = true`, non-students can register
 
 ### 11.0 Welfare role permission matrix
 
-The welfare module supports multiple specialized Employee roles (Counselor, Nurse / Health staff, Housing staff, etc.). Cross-track visibility is **not strict siloing** and **not all-open** — it's a **per-role permission matrix** configured by Manager-Welfare.
+The welfare module supports multiple specialized Employee roles (Counselor, Nurse / Health staff, Housing staff, etc.). Cross-track visibility is **not strict siloing** and **not all-open** — it's a **per-role permission matrix** configured by the Manager.
 
 For each welfare role and each welfare module, the matrix grants one of:
 - `none` — role cannot see this module at all (not even visit counts).
@@ -694,17 +796,17 @@ For each welfare role and each welfare module, the matrix grants one of:
 - `view` — role can read full notes (read-only).
 - `manage` — role can create and edit records in this module (their own primary track).
 
-**Defaults out-of-the-box** (Manager-Welfare can adjust):
+**Defaults out-of-the-box** (Manager can adjust):
 
 | Role | Counseling | Health | Housing | Other |
 |---|---|---|---|---|
 | Counselor | manage | summary | none | none |
 | Nurse / Health | none | manage | none | none |
 | Housing staff | none | none | manage | none |
-| Manager-Welfare | view | view | view | view |
+| Manager | view | view | view | view |
 
 - The "Nurse can have view on some modules, Counselor only sees her module" pattern is achievable by editing the matrix per role.
-- Every read of any welfare record (counseling note, health note, housing log) is audit-logged regardless of role (§14.4).
+- Every read of any welfare record (counseling note, health note, housing log) is audit-logged regardless of role (§15.4).
 - A student opening their own profile sees: appointment dates + attending staff name + status. They do **not** see notes content by default (see §11.4 for the student-visible summary).
 - Changing the matrix is audit-logged; new permissions apply prospectively (not retroactive to prior reads).
 
@@ -713,12 +815,12 @@ For each welfare role and each welfare module, the matrix grants one of:
 - **Booking**: student selects a slot, optionally provides a brief reason. Confirmation via in-app + email. Reminder 24h before via push + email.
 - **Cancellation**: student or counselor can cancel up to a configurable window before the slot. Late cancellation recorded.
 - **Session record**: counselor opens the appointment, fills **CounselingNote** (body, attachments). Marks status (Completed / NoShow / Cancelled).
-- **Visibility**: governed by the §11.0 matrix. Default: `manage` for Counselors on their own assigned students; `view` for Manager-Welfare; `summary` (visit dates only, no content) for adjacent roles like Nurse only if the matrix grants it. Other Employees see nothing. Audit log records every read.
+- **Visibility**: governed by the §11.0 matrix. Default: `manage` for Counselors on their own assigned students; `view` for Manager; `summary` (visit dates only, no content) for adjacent roles like Nurse only if the matrix grants it. Other Employees see nothing. Audit log records every read.
 
 ### 11.2 Health
 - **Appointments**: same shape as counseling — slots, booking, reminders, cancellation, post-visit notes.
 - **Walk-in visit logs**: Employee (health staff) records a walk-in: select student, complaint, action, referral, follow-up flag, notes. No prior booking required.
-- **Visibility**: governed by the §11.0 matrix. Default: `manage` for Nurse / Health on all health records; `view` for Manager-Welfare; `summary` for Counselor (i.e. counselor sees "Student X had a health visit on date Y" but not the medical content).
+- **Visibility**: governed by the §11.0 matrix. Default: `manage` for Nurse / Health on all health records; `view` for Manager; `summary` for Counselor (i.e. counselor sees "Student X had a health visit on date Y" but not the medical content).
 - **Student.health_notes** (chronic conditions, allergies, etc. — informational flags on the student record): visible to any role with at least `summary` on Health. Surfaces a non-medical alert on the profile ("This student has a flagged health condition; contact Health for details").
 
 ### 11.3 Sensitive-data handling
@@ -801,8 +903,10 @@ The planned total and student contribution figure are auto-summed from line item
 - **v2**: Full PRF workflow — Coordinator fills the PRF inside SAMA using the budget line items as the basis; routed for approvals; linked to the activity. Tracked status (Submitted / Approved / Rejected) visible in the Budget tab.
 
 ### 12.9 Club-organised activity budgets
-- Club Leader enters planned amount (simple or detailed mode) at creation. Manager sets approved amount at approval.
-- Budget change requests from Club Leaders follow the same path as Coordinators.
+- **Budget flow for club activities**: Club Leader creates a draft activity including a budget suggestion (planned amount in simple or detailed mode) → Club Coordinator reviews the draft and may adjust the budget before formally submitting it to the Manager → Manager approves and sets the final approved amount. Mechanically this is Draft → Submitted → Approved. Visually the flow should feel like two distinct steps (Club Leader creates/suggests; Coordinator reviews and adjusts/submits; Manager approves).
+- **Club Leader budget access**: Club Leaders have write access to the budget only while the activity is in Draft state — they can create and edit their budget suggestion on their own club's drafts. Once the activity advances past Draft, the Club Leader can no longer edit the budget; only Club Coordinator and Manager can.
+- **Club Coordinator budget access**: Club Coordinators have write access to the budget in both Draft and Submitted states for their assigned clubs. They can adjust the Club Leader's suggestion before or after submission to the Manager.
+- Budget change requests from Club Leaders follow the same path as Coordinators (submit request → Manager approves).
 - Club Leaders see full Budget tab for their own club's activities only.
 
 ### 12.10 Reporting
@@ -814,11 +918,74 @@ The planned total and student contribution figure are auto-summed from line item
 
 ---
 
-## 13. Module — Post-event workflow
+## 13. Student Portal
+
+The Student Portal is a distinct product surface — not a module of SAMA — designed for all currently enrolled students. It shares the same backend and data as SAMA; there is no separate database and no sync lag. Actions taken in the Student Portal are immediately visible in SAMA and vice versa.
+
+### 13.1 Surface description
+
+- **Type**: Mobile-first PWA (Progressive Web App) / responsive web application.
+- **Target users**: all currently enrolled students at the university, including students who also hold club officer roles.
+- **Design philosophy**: simplified, task-oriented navigation optimized for mobile. Information density is low relative to SAMA (which is desktop-first and information-dense).
+- **Entry point**: students authenticate via the single university SSO. Users with only student roles are routed directly to the Student Portal. Users with both student and staff roles have access to both surfaces (see §2.5).
+
+### 13.2 Standard tabs (all students)
+
+Every enrolled student has access to the following six tabs:
+
+| Tab | Contents |
+|-----|----------|
+| **Home** | Personalized activity feed, upcoming registered activities, reminders, recent notifications, quick-access shortcuts. |
+| **Explore** | The public-eligible activity catalog. Students browse and filter activities (by type, category/tag, club, date, availability). Registration is initiated here. |
+| **My Activities** | All past and upcoming registrations, attendance history, completion status, and pending waitlist positions. |
+| **Volunteering** | Volunteering-specific activity listings and the student's volunteering history and hours (subset of Explore/My Activities scoped to Campaign-type volunteer activities). |
+| **Certificates** | All earned certificates — downloadable PDFs, verification codes, survey-gate status ("submit feedback to unlock"). |
+| **Clubs** | Browse active clubs, view club pages and public activity lists, submit membership applications. |
+
+### 13.3 Workspace tab (club officers only)
+
+Students who hold any club officer role (Club Leader, Vice President, Secretary, Treasurer, or any other designated officer role) have an additional **Workspace** tab unlocked. This tab does not appear for regular (non-officer) students.
+
+**Who gets the Workspace tab**: any student whose `ClubMembership.role_in_club` is any officer-tier role for at least one active club. A student with officer roles in multiple clubs sees a club switcher within the tab.
+
+**V1 flat permissions**: all club officers — regardless of their specific title — have identical access within "Workspace". Differentiated officer permissions (e.g. President can do X but Secretary cannot) are deferred to V2.
+
+**Workspace tab features:**
+- Submit activity requests for their club (creates a Draft in SAMA)
+- Review and respond to incoming membership applications (approve/decline inline)
+- Track status of submitted activity requests (Draft → In coordinator review → Pending manager approval → Approved/Rejected)
+- View club budget snapshot (read-only — approved amount, spent, remaining)
+- View their officer roles across all clubs they lead
+
+**Club Leaders never touch SAMA.** All actions available to them are in the Student Portal. Their submissions, once created as Drafts in the backend, are processed by the Club Coordinator in SAMA.
+
+### 13.4 Integration with SAMA
+
+The Student Portal is not a separate system — it reads and writes to the same data layer as SAMA:
+
+- An activity request submitted by a Club Leader via the Student Portal **immediately appears as a Draft** in SAMA, visible to the assigned Club Coordinator(s).
+- When a Club Coordinator or Manager takes an action in SAMA (approval, rejection, request-for-changes), the **status update is immediately visible** to the Club Leader in their Student Portal "Workspace" tab. No delay, no polling.
+- When an activity is approved and published in SAMA, it **appears immediately in the Student Portal Explore tab** for eligible students.
+- Attendance, completion, and certificate status recorded in SAMA are immediately reflected in the student's "My Activities" and "Certificates" tabs.
+
+### 13.5 Permission model (Student Portal)
+
+The Student Portal permission model is independent of the SAMA permission matrix (§3.2). Roles in the Student Portal:
+
+| Role | Who has it | What it unlocks |
+|------|-----------|-----------------|
+| **Student** | Any enrolled student | Six standard tabs: Home, Explore, My Activities, Volunteering, Certificates, Clubs |
+| **Club Officer** | Any student with an officer-tier `role_in_club` | All standard tabs + "Workspace" tab (flat permissions, V1) |
+
+Students do not have access to any SAMA-only capability (approvals, activity creation outside the club officer flow, staff dashboards, budget management, welfare records, audit log, reports, role assignment).
+
+---
+
+## 14. Module — Post-event workflow
 
 This module defines what happens after `end_at` passes: closure, surveys, certificates, media gallery, follow-up tasks, and cloning. Activity types differ in detail (Campaigns may skip surveys/certificates) but follow the same flow.
 
-### 13.1 Closure mechanics
+### 14.1 Closure mechanics
 
 - **Manual close only**. After `end_at`, the activity remains in **InProgress** until the Coordinator (own) or Manager clicks **Close activity**. The system does NOT auto-close.
 - The Coordinator dashboard surfaces a **"Ready to close"** badge for any InProgress activity past `end_at` so they don't forget.
@@ -833,10 +1000,10 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   1. Activity state → **Completed**.
   2. Final completion calculation runs: each registration evaluated against attendance threshold → status set to **Completed** or **Failed**; remaining unresolved → **NoShow**.
   3. Standard survey is dispatched to all attendees (in-app + email + push).
-  4. Certificates are generated for those who Completed (per §9), but **visibility/download depends on survey gating** — see §13.3.
+  4. Certificates are generated for those who Completed (per §9), but **visibility/download depends on survey gating** — see §14.3.
   5. Audit event logged.
 
-### 13.2 Reopening a closed activity
+### 14.2 Reopening a closed activity
 
 - Coordinator (own) or Manager can **Reopen** a Completed activity with a reason (audit-logged).
 - On reopen:
@@ -845,16 +1012,16 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - Surveys remain open (already dispatched stay valid; new attendees added would receive a new dispatch on next close).
   - Issued certificates **remain valid** (verifiable via public URL). They are not retracted automatically — to revoke, use the explicit Revoke action (§9.3) which is logged separately.
   - Follow-up tasks remain unchanged.
-- Re-closure runs the same pipeline as §13.1, with one difference: only newly-completed registrations get NEW certificates; existing certificates are not re-issued unless explicitly regenerated.
+- Re-closure runs the same pipeline as §14.1, with one difference: only newly-completed registrations get NEW certificates; existing certificates are not re-issued unless explicitly regenerated.
 
-### 13.3 Surveys & feedback
+### 14.3 Surveys & feedback
 
 - **Standard survey** is auto-attached to every activity at creation. Defaults: overall rating (1–5), facilitator/Employee rating (1–5), would-recommend (Y/N), open comment.
 - **Optional customization**: Coordinator can add custom questions (rating, multiple-choice, open text, NPS) at activity creation or before closure. Cannot remove standard questions.
 - **Anonymity**: anonymous to all staff. Responses are aggregated; no field links a response to a student. This is enforced at the data layer:
   - SurveyResponse table has no `student_id` foreign key.
   - A separate `SurveyDispatch` table tracks who was sent the survey (and whether they submitted) — this lets the system show a student "you've already submitted" without linking the content of their response to them.
-- **Dispatch trigger**: surveys go out at closure (§13.1 step 3) — not when end_at passes, not at registration.
+- **Dispatch trigger**: surveys go out at closure (§14.1 step 3) — not when end_at passes, not at registration.
 - **Reminders**: in-app + email reminders at +3 days and +7 days post-closure if unsubmitted. After +14 days, no further reminders.
 - **Open window**: surveys remain open indefinitely (no hard close). Manager can still see results months later.
 - **Certificate gating** (for activities that issue certificates):
@@ -869,7 +1036,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - Employees: do not see survey results unless they are co-coordinators.
 - **Internal-only — never visible to other students.** Survey responses (aggregate or individual comments) are **not exposed to any student**, including the activity's own attendees. Students see only that *they* submitted (private to themselves). This is **not a social-media-style** feature; there is no public comment wall, no upvotes, no replies.
 - **Audience for comments**: only the activity's owning Coordinator (and co-coordinators) and Manager. Other Employees and other Coordinators do not see comments for activities they don't own.
-- **Comment moderation**: because the audience is small and trusted, no public-facing moderation surface is needed. Coordinator/Manager can hide an inappropriate comment from view (with reason, audit-logged) — this is housekeeping, not protection of other students. Anonymity guarantee is preserved: the system architecturally cannot link a SurveyResponse to a SurveyDispatch entry (§13.3 schema).
+- **Comment moderation**: because the audience is small and trusted, no public-facing moderation surface is needed. Coordinator/Manager can hide an inappropriate comment from view (with reason, audit-logged) — this is housekeeping, not protection of other students. Anonymity guarantee is preserved: the system architecturally cannot link a SurveyResponse to a SurveyDispatch entry (§14.3 schema).
 
 #### Survey question library
 - Manager curates a tenant-wide **library of reusable custom questions** (rating, multiple-choice, open text, NPS templates).
@@ -878,7 +1045,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - Library entries are tagged (e.g. "facilitator", "venue", "content depth") for quick search.
 - Manager-only CRUD on the library; Coordinators can suggest additions via a request flow (lightweight in v1: Coordinator clicks "suggest for library" on one of their ad-hoc questions; Manager approves/rejects).
 
-### 13.4 Media gallery
+### 14.4 Media gallery
 
 - **Upload**: Coordinator (own) or assigned Employees can upload **photos** at any time during InProgress or after Completed. Bulk upload supported.
 - **Video**: not supported in v1 (deferred — cost and UX complexity).
@@ -897,7 +1064,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Storage infrastructure**: managed by university IT. SAMA uses signed URLs with time-limited access for fetch. Hosting / CDN choice is an IT decision and not part of this PRD.
 - **Welfare module exclusion**: counseling and health appointments do NOT have media galleries. The gallery feature is exclusive to activities (events/programs/workshops/campaigns) and clubs.
 
-### 13.5 Follow-up tasks
+### 14.5 Follow-up tasks
 
 - A **FollowUpTask** is a structured action item attached to an activity (or a club).
 - Created by Coordinator (own) or Manager. Anyone with edit rights on the parent activity can create.
@@ -909,7 +1076,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Examples**: "Send thank-you email to keynote speaker", "Submit final report to dean", "Pay vendor invoice", "Write blog post for university website".
 - **Closure of activity does not require all tasks done** — tasks can outlive activity closure.
 
-### 13.6 Activity cloning
+### 14.6 Activity cloning
 
 - Coordinator (any) or Manager can click **Clone** on any activity (regardless of state) to create a new **Draft**.
 - **What is cloned**:
@@ -925,7 +1092,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - The cloned Draft enters the standard approval flow: Coordinator edits dates → Submits → Manager approves → Publishes.
 - **Lessons-learned database**: not in v1. Knowledge transfers via clone + Coordinator memory.
 
-### 13.7 Optional post-event report
+### 14.7 Optional post-event report
 
 - Template available at closure. Coordinator can fill or skip.
 - **Fields**: outcomes summary, attendance highlights, issues encountered, lessons learned, suggestions for next time, links to media/follow-up tasks, references to budget variance.
@@ -934,7 +1101,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Not required** for closure. Not required for certificate issuance.
 - Manager can request one after the fact (manual nudge; no system-blocking).
 
-### 13.8 Notifications triggered by post-event flow
+### 14.8 Notifications triggered by post-event flow
 
 | Event | Recipients | Channels |
 |-------|------------|----------|
@@ -949,9 +1116,9 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 
 ---
 
-## 14. Cross-cutting concerns
+## 15. Cross-cutting concerns
 
-### 14.1 Notifications
+### 15.1 Notifications
 - **Channels**: in-app (always), email, push (PWA web push).
 - **Categories** (each user can opt out per category, except critical):
   - Activity announcements (new activity matching my eligibility)
@@ -974,7 +1141,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - **In-app is authoritative for compliance-relevant messages**: registration confirmation, approval decision, cancellation, waitlist promotion. Email is best-effort but never the only path.
 - **Quiet hours**: optional per-user no-push window (e.g. 10pm–7am).
 
-### 14.2 Reports & dashboards
+### 15.2 Reports & dashboards
 - **Pre-built dashboards** (per role):
   - **Manager**: pending approvals, active activities, registrations this week, attendance rate trend, no-show rate, budget burn, certificates issued, club activity, welfare service load (counts only).
   - **Coordinator**: my activities by state, my registration counts, my upcoming sessions, my budget status, items needing my action.
@@ -987,12 +1154,12 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
   - Save as a definition; optionally schedule (email weekly, monthly).
 - **Scheduled reports**: Manager can have any saved report emailed to themselves on a schedule.
 
-### 14.3 Exports
+### 15.3 Exports
 - CSV/Excel: any list (registration roster, attendance sheet, transactions, custom report results).
 - PDF: formatted attendance sheets (printable), certificate batches, end-of-period summaries with branding.
 - Welfare data exports: Manager only, audit-logged with reason.
 
-### 14.4 Audit log
+### 15.4 Audit log
 - **Full**: every state change, edit, deletion, approval, certificate issue/revoke, role change, login, registration, attendance edit, note read (welfare).
 - **Fields**: actor, action, target, before/after JSON, IP, user agent, timestamp.
 - **Visibility**: Manager only.
@@ -1000,34 +1167,34 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Search & filter**: by actor, target, action type, date range.
 - **Note**: not labeled "immutable" per the explicit decision (full but normal-edit-protected, not write-once); operationally, no UI affordance to edit/delete log entries.
 
-### 14.5 Schedule conflict detection
+### 15.5 Schedule conflict detection
 - Activities: blocking, as described in §7.4.
 - Welfare appointments: a student can't double-book a counseling/health slot at the same time as another welfare appointment (block).
 - Cross-conflict (welfare ↔ activity): warn but allow (welfare appointments often shorter and the student may legitimately rearrange).
 
-### 14.6 No-show tracking
+### 15.6 No-show tracking
 - Tracked at registration level (`status = NoShow`) and welfare appointment level.
 - Visible in student profile to Manager / Coordinator (for activities) or counselor / health staff + Manager (for welfare).
 - No automatic penalties; report-driven only.
 
-### 14.7 Search & discovery
+### 15.7 Search & discovery
 - Global search (header) for Manager: across activities, students, clubs, transactions.
 - Student catalog search: by keyword, type, category/tag, date range.
 
-### 14.8 Internationalization
+### 15.8 Internationalization
 - **English only in v1.** UI strings externalized via i18n keys from day one to enable later Arabic addition without refactor.
 - All system text, emails, certificates, and surveys are English in v1.
 - **Arabic + RTL is post-v1.** Plan for full bilingual support with RTL mirroring; activity content (titles, descriptions) likely needs a per-field language pair (`title_en`, `title_ar`) — defer the modeling to the i18n v2 spec but reserve the column names now.
 - Time zone: Asia/Riyadh (UTC+3, no DST). All timestamps stored in UTC; displayed in Asia/Riyadh.
 
-### 14.9 Concurrent edits and data integrity
+### 15.9 Concurrent edits and data integrity
 - **Optimistic locking** on every editable entity. Each row has a `version` integer that increments on save.
 - **On save**: client sends the version it loaded. If DB version differs, save fails with `409 Conflict`.
 - **Conflict UI**: a modal explains "someone else changed this while you were editing", shows what changed (field-by-field diff: their value vs. your value), and offers: **Reload and re-apply my changes** (recommended) / **Discard my changes**. No silent overwrites.
 - **Audit log** records every conflict resolution so Manager can see how often it happens.
 - Applies to: activities, sessions, registrations, clubs, club memberships, budget transactions, welfare appointments, certificate templates, role assignments.
 
-### 14.10 Account lifecycle — out of scope for v1
+### 15.10 Account lifecycle — out of scope for v1
 - Identity provider (university IdP) is the source of truth for whether a user can log in.
 - When a student graduates, an Employee leaves the university, or any user's IdP account is disabled, SAMA simply sees "can no longer authenticate". No special in-app workflow.
 - Active registrations, owned activities, etc. remain in SAMA records for historical integrity but the actor cannot log in to manage them.
@@ -1035,7 +1202,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Implication for student departures mid-semester**: Coordinator sees the student is still Registered for future events; system flags "user account inactive" on the roster. Coordinator decides per case whether to cancel the registration. No auto-cancel.
 - Detailed lifecycle workflows (Alumni status conversion, role re-assignment automation) are deferred to v2.
 
-### 14.11 Data retention
+### 15.11 Data retention
 - **Keep everything.** All records (activities, registrations, attendance, certificates, surveys, follow-ups, media, welfare notes, audit log) are retained indefinitely for historical reporting.
 - **Soft delete only (in-app).** When a Manager (or system) "deletes" a record, the row is marked with `deleted_at` (and `deleted_by`, `deletion_reason`). It disappears from default views but remains queryable for audit, reports, and undelete.
   - Every entity that supports deletion has a `deleted_at` column.
@@ -1050,7 +1217,7 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 
 ---
 
-## 15. End-to-end scenarios
+## 16. End-to-end scenarios
 
 These scenarios trace real interactions across modules to expose gaps.
 
@@ -1213,7 +1380,7 @@ These scenarios trace real interactions across modules to expose gaps.
 
 ---
 
-## 16. Business rules registry
+## 17. Business rules registry
 
 A consolidated list to make gaps obvious. Each rule has an ID for reference.
 
@@ -1244,6 +1411,15 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-CL5**: A club must have at least one Club Coordinator assigned before a Club Leader can submit activity requests. If no Club Coordinator is assigned, submission is blocked with a message directing the Club Leader to contact the Manager.
 - **BR-CL6**: Club Coordinator assignments and Club Advisor assignments are many:many (a club can have multiple of each; a staff member can be assigned to multiple clubs in each role).
 - **BR-CL7**: Club Coordinator assignment and removal is logged in the audit trail.
+- **BR-CL8**: The two-step approval flow is triggered only when the activity's creator has the Club Leader role for the linked club. A Coordinator creating an activity linked to a club follows the standard one-step flow.
+- **BR-CL9**: Club creation requires Manager approval. A Club Leader submits a club formation request; Manager approves or rejects.
+- **BR-CL10**: Club Coordinator can initiate a club suspension (pending Manager confirmation). Manager can permanently archive a club.
+- **BR-CL11**: Club Leaders can view their own club's detail and member roster. They cannot see other clubs' member lists or budgets.
+- **BR-CL12**: Club metadata (name, description, meeting schedule, contact email) can be edited by the assigned Club Coordinator or Manager. Club Leader can propose changes via a request; Coordinator applies them.
+- **BR-CL13**: Membership requests are approved by the Club Coordinator (assigned) or Manager. Club Leader can view pending requests but cannot approve or reject them in v1.
+- **BR-CL14**: On a Club Leader's activity submission, notifications go to all Club Coordinators assigned to that club and (for awareness) all Club Advisors assigned to that club.
+- **BR-CL15**: After a Club Coordinator approves step 1, the Manager receives a notification: "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval."
+- **BR-CL16**: If Manager rejects at step 2, the activity returns to Submitted with coordinator_approval_phase = coordinator_approved so the Club Leader can review the Manager's reason without redoing coordinator review.
 
 ### Registration
 - **BR-R1**: A student cannot register for an activity outside its registration window.
@@ -1263,7 +1439,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-AT3**: Program completion = `present_sessions / total_sessions ≥ completion_threshold`.
 - **BR-AT4**: Single-session activity completion = present at the session.
 - **BR-AT5**: ~~Optional deliverable requirement gates Completion regardless of attendance.~~ *(Deferred: deliverables not in v1.)*
-- **BR-AT6**: Attendance can be edited within X days post-session by staff; thereafter only Manager.
+- **BR-AT6**: Attendance can be edited within X days post-session by the Coordinator or Employee assigned to the activity; thereafter only Manager.
 
 ### Certificates
 - **BR-C1**: Certificates are auto-generated when a registration reaches Completed (which only happens after manual closure of the activity).
@@ -1300,7 +1476,9 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-B9**: Increasing approved_amount post-approval requires a Budget change request. Decreasing is free (audit-logged, no request needed).
 - **BR-B10**: A Budget change request surfaces in both the Approvals inbox and inline in the Budget tab. Manager resolves it in either location.
 - **BR-B11**: At most one pending Budget change request per activity at a time.
-- **BR-B12**: For Club-organised activities: Club Leader enters planned amount; Manager sets approved amount at approval. Change requests from Club Leaders follow the same path as Coordinators.
+- **BR-B12**: For Club-organised activities: Club Leader enters planned amount as a budget suggestion in Draft state only. Club Coordinator reviews and may adjust the budget in Draft and Submitted states. Manager sets approved amount at final approval.
+- **BR-B12a**: Club Leader write access to budget is restricted to Draft state. Once an activity advances beyond Draft, Club Leader has view-only access to the budget.
+- **BR-B12b**: Club Coordinator has write access to budget in Draft and Submitted states for their assigned clubs.
 - **BR-B13**: Decreasing approved_amount below actual_spent is allowed but triggers the over-budget alert.
 - **BR-B14**: The Budget tab always shows stat cards (Planned, Approved, Spent, Remaining, Expected revenue, Received revenue). Unset values display as "—"; Spent and Received show AED 0 when no transactions exist.
 - **BR-B15**: v1 displays a PRF reminder banner on any activity with a budget. Full PRF workflow is deferred to v2.
@@ -1351,7 +1529,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-AC1 (Self check-in)**: per-activity `self_checkin_enabled` flag. When on, students scan a session-rotating QR; check-in valid only within `start_at − 15min` to `end_at`.
 - **BR-AC2 (Public catalog)**: per-activity `is_public` flag. Public view exposes title, brief description, dates, capacity status. Never names, photos, or eligibility internals.
 - **BR-WL1 (Waitlist auto-confirm)**: promotion is automatic; no separate confirmation window. Promoted student → Registered immediately; standard cancellation flow handles the "can't make it" case.
-- **BR-WF1 (Welfare permission matrix)**: per-role-per-module permission matrix (`none` / `summary` / `view` / `manage`). Manager-Welfare configures. Defaults: counselors silo, nurses silo, Manager-Welfare sees all; adjacent roles may receive `summary` (dates only, no content).
+- **BR-WF1 (Welfare permission matrix)**: per-role-per-module permission matrix (`none` / `summary` / `view` / `manage`). Manager configures. Defaults: counselors silo, nurses silo, Manager sees all; adjacent roles may receive `summary` (dates only, no content).
 - **BR-WF2 (Welfare audit)**: every read of a welfare note is audit-logged regardless of role.
 - **BR-WF3 (Student welfare view)**: student sees appointment dates / staff / status of their own welfare records. Notes content is staff-only in v1.
 
@@ -1367,41 +1545,48 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-SUR1 (Survey audience)**: survey results — including comments — are visible only to the activity's owning Coordinator(s) and Manager. Never to students or unrelated staff. Anonymity guarantee preserved at the data layer.
 - **BR-SUR2 (Question library)**: Manager-curated, tenant-wide, versioned. Coordinators pick from library and/or add ad-hoc questions per activity. Suggested additions submitted to Manager.
 
+### Student Portal & SSO (Round 29)
+- **BR-SP1**: All users authenticate via a single university SSO. There are no separate credentials for SAMA vs. the Student Portal. One identity per person.
+- **BR-SP2**: A user with only student roles is routed to the Student Portal. A user with only staff roles is routed to SAMA. A user with both student and staff roles is presented with access to both surfaces. The exact UX for dual-access (surface switcher, separate entry points, or post-login selector) is to be determined during design.
+- **BR-SP3**: Club officers (Club Leader, Vice President, Secretary, Treasurer, or any other designated officer role) do not receive SAMA access by virtue of their club role alone. Their elevated access is the "Workspace" tab within the Student Portal.
+- **BR-SP4**: All club officers within a club have identical permissions in the Student Portal "Workspace" tab (V1). Differentiated officer permissions are deferred to V2.
+- **BR-SP5**: Activity requests submitted by Club Leaders via the Student Portal are created as Drafts in the SAMA backend and are immediately visible to the assigned Club Coordinator(s) in SAMA.
+
 ---
 
-## 17. Non-functional requirements
+## 18. Non-functional requirements
 
-### 17.1 Platforms & UX
+### 18.1 Platforms & UX
 - Responsive web + PWA (installable, offline cache for read-only views, web push).
 - Modern evergreen browsers + iOS Safari + Android Chrome.
 - Accessibility: WCAG 2.1 AA target.
 
-### 17.2 Performance
+### 18.2 Performance
 - p95 page load < 2.5s on 4G.
 - Catalog and roster lists handle 10k+ rows with pagination/virtualization.
 - Notifications dispatched within 30s of trigger.
 
-### 17.3 Security
+### 18.3 Security
 - Role-based access enforced server-side (never client-only).
 - Welfare data encrypted at rest.
 - All API calls authenticated; CSRF protection; input validation.
 - Audit log captures actor + IP for sensitive actions.
 - Files (attachments, receipts, certificates) stored with signed URLs (time-limited).
 
-### 17.4 Authentication
+### 18.4 Authentication
 - v1: local accounts (email + password, MFA optional).
 - Later phase: Microsoft SSO (OIDC). Designed to plug in without schema change.
 
-### 17.5 Reliability
+### 18.5 Reliability
 - Background jobs (state transitions, notifications) idempotent; retry with backoff.
 - Daily backups; PITR (point-in-time recovery) target 24h.
 
-### 17.6 Observability
+### 18.6 Observability
 - Structured app logs.
 - Error tracking (Sentry-like).
 - Basic metrics: registrations/day, certificates/day, notification delivery rate, error rate.
 
-### 17.7 Data scale assumptions (sizing)
+### 18.7 Data scale assumptions (sizing)
 - Students: ~30k.
 - Activities/year: ~500–2000.
 - Registrations/year: ~50k–200k.
@@ -1410,29 +1595,29 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 
 ---
 
-## 18. Open questions & gaps
+## 19. Open questions & gaps
 
 These are decisions still pending or assumptions you should pressure-test.
 
-### 18.1 Gaps from explicit decisions
+### 19.1 Gaps from explicit decisions
 *(Rounds 20–21 resolved the items previously listed here — welfare permission matrix in §11.0, student-visible welfare summary in §11.4, waitlist auto-confirm in §7.3, self check-in flag in §6.1. This section is now empty; reintroduce items if new explicit-decision gaps are surfaced.)*
 
-### 18.2 Things not yet asked (still open)
+### 19.2 Things not yet asked (still open)
 - **Group registration**: can a student register a group of friends, or is each registration individual? Default: individual.
 - **Attendance threshold**: §5.3 defaults to 80% for programs. Confirm; allow per-activity override at creation.
-- **Staff scheduling conflicts**: §14.5 doesn't currently warn when an Employee is assigned to two overlapping activities. Add?
+- **Staff scheduling conflicts**: §15.5 doesn't currently warn when an Employee is assigned to two overlapping activities. Add?
 - **Capacity for waitlist**: unlimited or capped (e.g. max 50 on waitlist per activity)?
 - **Multi-currency**: confirm single currency for v1; tenant settings (§4.0) supports per-tenant currency for future SaaS.
-- **Notification quiet hours**: §14.1 mentions per-user quiet hours; confirm whether this is needed in v1.
+- **Notification quiet hours**: §15.1 mentions per-user quiet hours; confirm whether this is needed in v1.
 - **Bulk operations on registrations**: Coordinator may need bulk-email-all-registered, bulk-mark-attendance-from-list, bulk-export-roster. Confirm which are v1.
-- **Activity cloning / templates** (covered for closed activities in §15 Scenario M): are there pre-built templates for common activity types at creation time? Probably v2.
+- **Activity cloning / templates** (covered for closed activities in §16 Scenario M): are there pre-built templates for common activity types at creation time? Probably v2.
 - **Provider choice for email/SMS**: SES vs. SendGrid vs. local SMTP; SMS provider Twilio vs. local SAR provider. Implementation detail; flagged for the build phase.
 - **Backup and disaster recovery**: RPO/RTO targets; off-site replication. IT-managed; document in a separate Ops doc.
 
 *(Resolved round 22: recurring activities → §10.5 Program-per-term; certificate hours → §9.1.1 manual with auto-default; profile photo → §4.1 feed with moderated student override.)*
 *(Resolved round 23: visitors / non-students → §7.1.6 guest registration with magic-link, opt-in per activity.)*
 
-### 18.3 Remaining sub-questions (after rounds 17–19)
+### 19.3 Remaining sub-questions (after rounds 17–19)
 
 Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 
@@ -1442,7 +1627,7 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - **Per-session waitlist**: when per-session capacity is enabled and a session is full, does the system maintain a per-session waitlist (auto-promotion if someone un-signs-up)? Currently §7.4 implies no per-session waitlist. Confirm or add.
 - **Cross-department reporting**: a tenant-wide report (e.g. "all activities across Student Activities + Alumni") needs a TenantAdmin role to view. Out of scope for v1, flagged for v2.
 
-### 18.4 Gaps from post-event decisions (rounds 13–15)
+### 19.4 Gaps from post-event decisions (rounds 13–15)
 - **Re-close after reopen — survey behavior**: if a reopened activity adds a brand-new attendee whose registration becomes Completed, does that student receive the survey only, or are previously-submitted surveys re-opened for editing? Default: only new attendees get a fresh dispatch; previous responses are immutable. Confirm.
 - **Survey edit window for students**: once submitted, can a student edit their answers? Default: no (immutable to preserve aggregate integrity). Confirm.
 - **Auto-release fallback (30 days)**: configurable globally or per-activity? Should Manager be able to disable auto-release for high-stakes activities?
@@ -1452,13 +1637,13 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - **Clone — what about co-coordinators and employee assignments**: should those carry over by default, or always start fresh? Default suggested: assignments do NOT carry; Coordinator (cloner) becomes owner; co-coordinators/employees re-assigned manually. Confirm.
 - **Survey export**: can Manager export raw (anonymous) responses to CSV for external analysis? Likely yes; confirm and ensure export does not include any dispatch-side identifying data.
 - **Closing partial completions**: what happens when Coordinator closes an activity with attendance still missing for some sessions? System currently warns (pre-close checklist) but doesn't block. Confirm this is intentional.
-- **Reopen audit visibility to students**: should students be told "this activity was reopened — your records may have been updated"? Currently only staff are notified. Decide.
+- **Reopen audit visibility to students**: should students be told "this activity was reopened — your records may have been updated"? Currently only Coordinators, Employees, and Manager are notified. Decide.
 - **Survey impact on activities without certificates**: a Campaign-type activity with no certs — is the standard survey still mandatory? Currently yes (auto-attached). Confirm Coordinator can opt out for awareness campaigns.
 - **Media gallery storage costs**: at scale (hundreds of activities × dozens of photos), storage and CDN costs add up. Need a quota/policy decision before launch.
 
-*(Resolved round 23: ready-to-close → §13.1 Manager dashboard widget, no notifications; anonymous comments → §13.3 staff-only audience clarified, no public moderation needed; survey question library → §13.3 Manager-curated, versioned, with Coordinator suggestion flow.)*
+*(Resolved round 23: ready-to-close → §14.1 Manager dashboard widget, no notifications; anonymous comments → §14.3 staff-only audience clarified, no public moderation needed; survey question library → §14.3 Manager-curated, versioned, with Coordinator suggestion flow.)*
 
-*(Resolved round 24 — Budget module decisions, now reflected in §4.8, §6.1, §12, §16:*
+*(Resolved round 24 — Budget module decisions, now reflected in §4.8, §6.1, §12, §17:*
 - *Budget structure: single planned amount at creation (not line items). Transactions recorded post-approval are the detail breakdown.*
 - *Budget is optional — activities with no planned amount set behave as zero-budget.*
 - *All activity types (Event, Program, Volunteering, Task, External) have a Budget tab.*
@@ -1472,15 +1657,15 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - *Club-organised activities: Club Leader enters planned amount; Manager sets approved amount at approval.*
 - *Budget tab empty state: stat cards always shown even when no budget is set — unset values display as "—", Spent shows AED 0. No blank empty-state.)*
 
-*(Resolved round 25 — Co-funded budget model, now reflected in §4.8, §6.1, §12, §16:*
+*(Resolved round 25 — Co-funded budget model, now reflected in §4.8, §6.1, §12, §17:*
 - *Two budget modes: simple (single total) and detailed (line items with University / Student / Split funding tags). Coordinator chooses at creation.*
 - *Budget tab gains a Revenue section: Expected revenue vs. Received vs. Pending, sourced from the finance system (§7.8). Not manually entered.*
 - *Income transactions are system-generated by the finance integration — not coordinator-enterable. Adjustment type remains deferred.*
 - *Registration fee validation: in detailed mode, if student-funded per-head total mismatches the activity's registration fee, system shows a persistent warning. Fields remain independent.*
-- *PRF (Purchase Request Form) workflow is deferred to v2. v1 shows an informational banner on budgeted activities reminding staff a PRF is required via the standard process.*
+- *PRF (Purchase Request Form) workflow is deferred to v2. v1 shows an informational banner on budgeted activities reminding any authenticated employee that a PRF is required via the standard process.*
 - *Budget tab stat cards expanded to six: Planned, Approved, Spent, Remaining, Expected revenue, Received revenue.)*
 
-*(Resolved round 27 — Role architecture & club approval, now reflected in §3, §4.1, §4.5, §6.2, §10, §16:*
+*(Resolved round 27 — Role architecture & club approval, now reflected in §3, §4.1, §4.5, §6.2, §10, §17:*
 - *Roles are additive and module-scoped. Manager is the superset with no module boundary. Nurse/Counselor permissions are Health/Counseling module-only. Coordinator permissions are Activities module-only.*
 - *Two new roles added to the matrix: Club Coordinator (internal, first-step approver for assigned clubs) and Club Advisor (internal or external observer, no approval authority in v1).*
 - *Club Leader formalised as a student-facing system role granted per-club.*
@@ -1491,15 +1676,42 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - *Club approvals appear in the same Approvals inbox, tagged with the club name.*
 - *Role assignment is Manager-only from the Settings page. No delegation in v1.)*
 
-### 18.5 Decisions deferred
+### 19.4a Resolved decisions — Round 28 (2026-05-12)
+
+The following gaps were resolved in Round 28 and their decisions are now reflected throughout this PRD:
+
+- **Gap 3** (Manager-Welfare): "Manager-Welfare" is not a separate sub-role. The term is removed from §11. The Manager role inherently holds welfare oversight. WelfareAssignment grants Employee-level welfare staff access, not a distinct Manager-Welfare role.
+- **Gap 4** (Two-step club approval trigger): Triggered by `created_by has Club Leader role for the linked club`. A Coordinator creating an activity on behalf of a club follows the standard one-step flow. Updated in §6.2.2.
+- **Gap 6** (Club Leader budget): Club Leaders can draft/suggest a budget (write access in Draft state only). Flow: Club Leader creates draft including budget suggestion → Club Coordinator reviews/adjusts and formally submits → Manager approves. Mechanically Draft→Submitted→Approved. Updated in §12.9 and §3.2.
+- **Gap 1** (Staff terminology): "Staff" removed as a role name throughout §3. Replaced with specific role names (Coordinator, Manager, etc.) or "authenticated employee" as appropriate.
+- **Gap 2** (Role table completeness): Club Coordinator → "Clubs (assigned)"; Club Advisor → "Clubs (assigned, notify-only)". Footnote added: Manager implicitly holds every role's permissions across all modules.
+- **Gap 5** (Standard approval flow): Confirmed single-step: Coordinator submits → Manager approves. Note added in §6.2.1: activities not linked to a club, or club activities not created by a Club Leader, always follow this flow.
+- **Gap 7** (Club creation): Club creation requires Manager approval. A Club Leader submits a club formation request; Manager approves or rejects. Added to §10.1.
+- **Gap 8** (Club deactivation/archival): Club Coordinator can suspend a club (pending Manager confirmation). Manager can permanently archive. Added to §10.1.
+- **Gap 9** (Club Advisor permissions): Activities = View only, Budget = View only, Clubs = View assigned clubs only, Reports = None. Updated in §3.2 and §3.3.
+- **Gap 10** (Notification on submission): On Club Leader submission, notifications to all assigned Club Coordinators + Club Advisors (awareness only). Added to §6.2.2.
+- **Gap 11** (Notification after step-1 approval): Manager receives "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval." Added to §6.2.2.
+- **Gap 12** (Rejection in two-step flow): Coordinator rejection → Draft. Manager rejection → Submitted with coordinator_approval_phase=coordinator_approved (Club Leader sees reason without redoing Coordinator review). Added to §6.2.2.
+- **Gap 13** (Club Leader club visibility): Club Leaders can view own club detail and members; cannot see other clubs' member lists or budgets. Added to §10.6.
+- **Gap 14** (Club metadata editing): Club Coordinator or Manager edits club metadata. Club Leader can propose changes via free-text request. Added to §10.7.
+- **Gap 15** (Membership request approval): Approved by Club Coordinator or Manager. Club Leader can view pending requests but cannot approve/reject in v1. Added to §10.8.
+- **Gap 16** (BR numbering): Business rules audited; no duplicates found. New BRs BR-CL8 through BR-CL16 and BR-B12a/BR-B12b added.
+- **Gap 17** (Assignment types): §4.1 updated with who assigns, cardinality, and permission granted for all 4 assignment types.
+- **Gap 18** (WelfareAssignment): Clarified as granting Employee-level welfare access to a specific service; assigned by Manager. "Manager-Welfare" is not a role.
+- **Gap 19** (Round 28 log entry): This entry. Date 2026-05-12. 20 gaps closed in total (Gaps 1–20).
+- **Gap 20** (coordinator_approval_phase): Added to §4.2 Activity table: `coordinator_approval_phase ENUM('pending','coordinator_approved') NULLABLE`, non-null only when status='submitted' and trigger condition (Club Leader creator) is met.
+
+Total gaps closed in Round 28: 20.
+
+### 19.5 Decisions deferred
 - **Microsoft SSO**: deferred to a later phase. Local auth in v1.
 - **TenantAdmin & multi-tenant provisioning**: schema-ready; UX/operations not designed for v1.
 - **v2 modules** (Alumni, Colleges, etc.): module catalog is open-ended; specific module scopes belong in their own PRDs.
-- **Finance Integration Spec**: separate document required before paid-activity build (see §18.3).
+- **Finance Integration Spec**: separate document required before paid-activity build (see §19.3).
 - **PRF workflow** (Purchase Request Form): full multi-step chain (Coordinator → Manager → Procurement → Finance → President) is a v2 feature. v1 shows a reminder banner only. See §12.8.
 - **External Club Advisor accounts**: faculty or professionals outside the department assigned as Club Advisors need a limited external account type (scoped to their club(s), read-only, magic-link auth). Deferred to v2. v1: Club Advisors are internal staff only.
 
-### 18.6 Architectural assumptions to validate
+### 19.6 Architectural assumptions to validate
 - **Single Manager in v1**, but the schema supports multiple Managers and per-department role assignments via `DepartmentRole` (§4.0). No retrofit needed when a second Manager joins.
 - **Single Department in v1** (Student Activities). Schema includes `department_id` on all activities/clubs/welfare/budget/audit rows. Adding Alumni or Colleges as new departments later is a config + data-load operation, not a schema change. Each department can enable/disable modules independently.
 - **Single Tenant in v1** (one university). `tenant_id` is on every row from day one. Migrating to multi-tenant SaaS is primarily an operational concern (per-tenant provisioning, per-tenant URLs/branding, tenant-scoped admin role).
@@ -1508,7 +1720,7 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 
 ---
 
-## 19. High-level implementation phases
+## 20. High-level implementation phases
 
 Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
@@ -1561,7 +1773,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
 ---
 
-## 20. Out of scope for v1
+## 21. Out of scope for v1
 - Native mobile apps.
 - Multi-language UI (Arabic).
 - Multi-tenant / multi-department deployment.
@@ -1571,7 +1783,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
 ---
 
-## 21. Decisions log (captured during requirements)
+## 22. Decisions log (captured during requirements)
 
 | # | Decision | Source |
 |---|----------|--------|
@@ -1634,7 +1846,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 57 | Self check-in: per-activity `self_checkin_enabled` flag with rotating session QR + time window | round 21 |
 | 58 | Public catalog: per-activity `is_public` flag exposing only title, dates, brief description, capacity status | round 21 |
 | 59 | Waitlist promotion is auto-confirm (no separate confirmation window); cancel flow handles "can't make it" | round 21 |
-| 60 | Welfare visibility is a per-role-per-module permission matrix (`none`/`summary`/`view`/`manage`); Manager-Welfare configures; student sees their own appointment metadata but not notes | round 21 |
+| 60 | Welfare visibility is a per-role-per-module permission matrix (`none`/`summary`/`view`/`manage`); Manager configures; student sees their own appointment metadata but not notes | round 21 |
 | 61 | Terminology: "Course" renamed to "Program" globally (glossary, schema enums, scenarios, decisions) | round 22 |
 | 62 | Recurring activities (clubs that meet weekly): one Program-type activity per academic term with weekly sessions; new term = new Program | round 22 |
 | 63 | Certificate hours: `Activity.cert_hours` is staff-set; default = sum of session durations; editable | round 22 |
@@ -1643,8 +1855,26 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 66 | Survey comments are visible only to owning Coordinator(s) + Manager. Not a social-media-style feature; no public moderation surface needed | round 23 |
 | 67 | Ready-to-close: Manager dashboard widget only; no notification escalation, no auto-closure | round 23 |
 | 68 | Survey question library: Manager-curated, tenant-wide, versioned. Coordinators pick from library and/or add ad-hoc questions; suggested additions go to Manager for approval | round 23 |
+| 69 | Manager-Welfare is not a separate sub-role; Manager role covers all welfare oversight. WelfareAssignment grants Employee-level welfare access per service | round 28 |
+| 70 | Two-step club approval triggered by creator having Club Leader role for linked club; Coordinator-created club activities use standard one-step flow | round 28 |
+| 71 | Club Leader budget: write access in Draft state only; Coordinator write access in Draft and Submitted; Manager sets approved amount | round 28 |
+| 72 | Club creation requires Manager approval on a Club Leader's formation request | round 28 |
+| 73 | Club suspension: Coordinator initiates, Manager confirms. Club archival: Manager only | round 28 |
+| 74 | Club Advisor permissions: Activities/Budget view only for assigned clubs, Clubs view only, Reports none | round 28 |
+| 75 | Notification on Club Leader submission: all assigned Coordinators + all assigned Advisors (awareness). Notification on step-1 approval: Manager receives confirmation message | round 28 |
+| 76 | Manager rejection at step 2 returns activity to Submitted with coordinator_approval_phase=coordinator_approved (Club Leader sees reason without redoing step 1) | round 28 |
+| 77 | Club Leader visibility: own club detail and members only; cannot see other clubs' member lists or budgets | round 28 |
+| 78 | Club metadata changes: Coordinator or Manager edits; Club Leader proposes via free-text request | round 28 |
+| 79 | Membership request approval: Club Coordinator or Manager; Club Leader can view but not approve/reject in v1 | round 28 |
+| 80 | coordinator_approval_phase ENUM('pending','coordinator_approved') NULLABLE added to Activity table; non-null only when status='submitted' and trigger condition met | round 28 |
+| 81 | Platform surface architecture: hybrid model (two UI surfaces, one shared backend). SAMA = internal staff tool, desktop-first. Student Portal = student-facing product, mobile-first PWA. | round 29 |
+| 82 | SSO model: single university SSO for both surfaces. No separate credentials. Role-based routing: staff only → SAMA; student only → Student Portal; both → access to both surfaces. | round 29 |
+| 83 | Part-time student/staff edge case: a user holding both a student identity and a staff role must be explicitly handled in the auth layer — they receive access to both surfaces. Exact UX TBD in design. | round 29 |
+| 84 | Club Leader / club officer access: all club officers are students and access the system exclusively via the Student Portal "Workspace" tab. They never access SAMA. Their submissions create Drafts in SAMA for the Club Coordinator to process. | round 29 |
+| 85 | V1 flat officer permissions: all club officers (regardless of title) have identical access in the Student Portal "Workspace" tab. Differentiated officer permissions deferred to V2. | round 29 |
+| 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
 
 ---
 
-*End of PRD. The PRD is substantively complete for v1 scope. Remaining open items are narrow and listed in §18.2 / §18.3 (e.g. finance reference-number format, auto-decision deadline default, per-session waitlist behavior, staff scheduling-conflict warnings, bulk operations confirm). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
+*End of PRD. The PRD is substantively complete for v1 scope. Remaining open items are narrow and listed in §19.2 / §19.3 (e.g. finance reference-number format, auto-decision deadline default, per-session waitlist behavior, authenticated employee scheduling-conflict warnings, bulk operations confirm). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
 
