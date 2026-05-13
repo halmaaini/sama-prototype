@@ -543,9 +543,11 @@ When the activity's `allow_guest_registration = true`, non-students can register
 - Auto-promotion on:
   - A Registered student cancels.
   - Capacity is raised by Coordinator.
-- **Promotion is auto-confirm — no separate confirmation window.** Promoted student's registration → Registered immediately; in-app + email + push notification fires: "A seat opened up — you're now Registered for [activity]. If you can't make it, please cancel."
-  - Rationale: lower friction; the existing cancel flow handles the "actually I can't come" case and frees the seat for the next person automatically.
-  - Trade-off: a non-engaged promoted student who doesn't check the app might silently no-show. Acceptable because attendance/no-show tracking already surfaces this pattern.
+- **Confirmation window is configurable per activity by the coordinator.** Two modes:
+  - **No window set (default — auto-confirm):** Promoted student's registration → Registered immediately; in-app + email + push notification fires: "A seat opened up — you're now Registered for [activity]. If you can't make it, please cancel." No action is required from the student to secure the spot.
+    - Rationale: lower friction; the existing cancel flow handles the "actually I can't come" case and frees the seat for the next person automatically.
+    - Trade-off: a non-engaged promoted student who doesn't check the app might silently no-show. Acceptable because attendance/no-show tracking already surfaces this pattern.
+  - **Window set by coordinator:** Student receives an offer notification with a deadline. They must confirm within the configured window to secure the spot. If they do not confirm in time, the spot passes to the next waitlisted student and the original student is notified that their offer has expired.
 - Waitlist may be capped (configurable) or unlimited.
 
 ### 7.4 Capacity model — hybrid (program roster + per-session)
@@ -978,6 +980,66 @@ The Student Portal permission model is independent of the SAMA permission matrix
 | **Club Officer** | Any student with an officer-tier `role_in_club` | All standard tabs + "Workspace" tab (flat permissions, V1) |
 
 Students do not have access to any SAMA-only capability (approvals, activity creation outside the club officer flow, staff dashboards, budget management, welfare records, audit log, reports, role assignment).
+
+### 13.6 Student Portal business rules
+
+These rules govern student-facing behavior in the Student Portal. They complement the SAMA business rules in §17 and apply exclusively to the Student Portal surface.
+
+#### Explore & Registration
+
+- **BR-SP6**: Only activities with status = Active (Published, RegistrationOpen) are visible in the Explore tab. Activities in Draft, Pending Approval, Rejected, Cancelled, or Completed states are not shown.
+- **BR-SP7**: Each activity has a configurable registration deadline set by the coordinator. After the deadline, registration is closed and the student cannot register from the Student Portal. Activities with no deadline set allow registration until the event start time.
+- **BR-SP8**: Activities are open to all enrolled students with no eligibility restrictions in V1. Eligibility filtering (by major, year, gender) is deferred to V2.
+- **BR-SP9**: Fee payment for paid activities is out of scope for V1. The student portal captures registration intent only. Fee handling is managed by a separate process (TBD).
+
+#### Cancellation & Waitlist
+
+- **BR-SP10**: Cancellation deadline is configurable per activity by the coordinator. After the deadline, students cannot cancel from the Student Portal without coordinator intervention. (Cancellation policy options are defined in §6.1; this rule clarifies the Student Portal behavior.)
+- **BR-SP11**: Waitlist confirmation window is configurable per activity by the coordinator. When no window is configured, promotion is automatic (auto-confirm) — this is the default behaviour (see BR-WL1). When a window is configured and a waitlist spot is offered to a student, the student must confirm within the configured window. If the student does not confirm within the window, the spot passes to the next person on the waitlist and the original student is notified that their offer has expired.
+
+#### Volunteering
+
+- **BR-SP12**: The volunteer hours semester goal is a university-wide fixed target configured in system settings (not per student). All students share the same target.
+- **BR-SP13**: Self-reported external activity attendance is not automatically counted. It enters a "Pending verification" state. A coordinator must verify the self-report before it appears on the student's official transcript or contributes to hours totals.
+
+#### Certificates
+
+- **BR-SP14**: Certificates may be issued in one of two modes, chosen by the activity creator at setup: (1) **Manual** — a coordinator issues certificates explicitly; (2) **Automatic** — certificates are issued automatically when a student meets a configured attendance threshold set per activity. Both modes are supported. The activity creator selects the mode when setting up the activity.
+- **BR-SP15**: Each certificate has a unique public verification URL. Anyone with the URL can view certificate details (student name, activity, date, certificate type, issuing institution) without logging in.
+- **BR-SP16**: Certificates do not expire.
+
+#### Transcript
+
+- **BR-SP17**: A student transcript includes: all completed activities (attended), self-reported activities verified by a coordinator, cumulative volunteer hours, and all certificates earned.
+- **BR-SP18**: Transcripts are generated on-demand as a PDF, downloadable instantly by the student. No email delivery or routing to registrar in V1.
+
+#### Clubs
+
+- **BR-SP19**: Students can view a club's full profile (description, meeting schedule, room, past activities, current member count) before submitting a membership application.
+- **BR-SP20**: There is no maximum member count per club in V1.
+- **BR-SP21**: A club leader cannot leave a club if they are the only remaining leader. The system blocks the action and prompts them to promote another member to leader first. The assigned Club Coordinator is notified when a leadership transition is initiated, and must confirm the new leader before the previous leader can exit.
+- **BR-SP22**: Membership applications auto-decline after 14 days if no action is taken by a club officer. The applicant is notified and may reapply.
+
+#### Workspace — Announcements & Requests
+
+- **BR-SP23**: Club announcements are delivered via in-app notification only (no email in V1). Announcements are sent to active (confirmed) members of the club only. Pending applicants do not receive announcements.
+- **BR-SP24**: The minimum required fields for a club officer's activity request submission are: activity title, type, proposed date, description, and expected number of attendees. All other fields are completed by the Club Coordinator.
+
+#### Privacy
+
+- **BR-SP25**: Student participation records (activity history, volunteer hours, certificates) are private by default. Students can only view their own records. On activity pages, aggregate information is visible to all (e.g. "187 registered", attendee avatars), but full individual records are not accessible to other students.
+
+#### Notifications
+
+- **BR-SP26**: The following events trigger in-app notifications in the Student Portal:
+  1. Registration confirmed or added to waitlist
+  2. Waitlist spot offered (notification includes countdown deadline)
+  3. Activity cancelled or rescheduled (for registered students)
+  4. Club membership application approved or declined
+  5. Club activity request status changed (for club officers: Draft → In coordinator review → Pending manager approval → Approved / Rejected)
+  6. Club announcement received (from club officer to members)
+  7. Certificate issued
+  8. Self-reported activity verified or rejected by coordinator
 
 ---
 
@@ -1528,7 +1590,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-CC5 (In-app authoritative)**: compliance-relevant messages (approval decision, cancellation, waitlist promotion, registration confirmation) are always delivered in-app even if email/SMS fails.
 - **BR-AC1 (Self check-in)**: per-activity `self_checkin_enabled` flag. When on, students scan a session-rotating QR; check-in valid only within `start_at − 15min` to `end_at`.
 - **BR-AC2 (Public catalog)**: per-activity `is_public` flag. Public view exposes title, brief description, dates, capacity status. Never names, photos, or eligibility internals.
-- **BR-WL1 (Waitlist auto-confirm)**: promotion is automatic; no separate confirmation window. Promoted student → Registered immediately; standard cancellation flow handles the "can't make it" case.
+- **BR-WL1 (Waitlist promotion)**: When a waitlist spot opens, the coordinator may configure a confirmation window per activity. If no window is configured, promotion is automatic (auto-confirm): the promoted student → Registered immediately and the standard cancellation flow handles the "can't make it" case. If a window is set and the student does not confirm within it, the spot passes to the next waitlisted student and the original student is notified that their offer has expired.
 - **BR-WF1 (Welfare permission matrix)**: per-role-per-module permission matrix (`none` / `summary` / `view` / `manage`). Manager configures. Defaults: counselors silo, nurses silo, Manager sees all; adjacent roles may receive `summary` (dates only, no content).
 - **BR-WF2 (Welfare audit)**: every read of a welfare note is audit-logged regardless of role.
 - **BR-WF3 (Student welfare view)**: student sees appointment dates / staff / status of their own welfare records. Notes content is staff-only in v1.
@@ -1551,6 +1613,30 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-SP3**: Club officers (Club Leader, Vice President, Secretary, Treasurer, or any other designated officer role) do not receive SAMA access by virtue of their club role alone. Their elevated access is the "Workspace" tab within the Student Portal.
 - **BR-SP4**: All club officers within a club have identical permissions in the Student Portal "Workspace" tab (V1). Differentiated officer permissions are deferred to V2.
 - **BR-SP5**: Activity requests submitted by Club Leaders via the Student Portal are created as Drafts in the SAMA backend and are immediately visible to the assigned Club Coordinator(s) in SAMA.
+
+### Student Portal — Explore, Registration, Cancellation, Waitlist, Volunteering, Certificates, Transcript, Clubs, Workspace, Privacy, Notifications (Round 31)
+
+- **BR-SP6**: Only activities with status = Active (Published, RegistrationOpen) are visible in the Explore tab. Draft, Pending Approval, Rejected, Cancelled, and Completed activities are not shown.
+- **BR-SP7**: Each activity has a configurable registration deadline set by the coordinator. After the deadline, registration is closed. Activities with no deadline set allow registration until the event start time.
+- **BR-SP8**: Activities are open to all enrolled students with no eligibility restrictions in V1. Eligibility filtering (by major, year, gender) is deferred to V2.
+- **BR-SP9**: Fee payment for paid activities is out of scope for V1. The student portal captures registration intent only. Fee handling is managed by a separate process (TBD).
+- **BR-SP10**: Cancellation deadline is configurable per activity by the coordinator. After the deadline, students cannot cancel without coordinator intervention.
+- **BR-SP11**: Waitlist confirmation window is configurable per activity by the coordinator. If a student does not confirm within the window after a spot is offered, the spot passes to the next person on the waitlist and the original student is notified.
+- **BR-SP12**: The volunteer hours semester goal is a university-wide fixed target configured in system settings (not per student). All students share the same target.
+- **BR-SP13**: Self-reported external activity attendance is not automatically counted. It enters a "Pending verification" state. A coordinator must verify before it appears on the student's official transcript or contributes to hours totals.
+- **BR-SP14**: Certificates may be issued in one of two modes chosen by the activity creator at setup: (1) Manual — a coordinator issues certificates explicitly; (2) Automatic — certificates are issued automatically when a student meets a configured attendance threshold set per activity. Both modes are supported.
+- **BR-SP15**: Each certificate has a unique public verification URL. Anyone with the URL can view certificate details (student name, activity, date, certificate type, issuing institution). No login required to verify.
+- **BR-SP16**: Certificates do not expire.
+- **BR-SP17**: A student transcript includes: all completed activities (attended), self-reported activities verified by a coordinator, cumulative volunteer hours, and all certificates earned.
+- **BR-SP18**: Transcripts are generated on-demand as a PDF, downloadable instantly by the student. No email delivery or routing to registrar in V1.
+- **BR-SP19**: Students can view a club's full profile (description, meeting schedule, room, past activities, current member count) before submitting a membership application.
+- **BR-SP20**: There is no maximum member count per club in V1.
+- **BR-SP21**: A club leader cannot leave a club if they are the only remaining leader. The system blocks the action and prompts them to promote another member to leader first. The assigned Club Coordinator is notified when a leadership transition is initiated and must confirm the new leader before the previous leader can exit.
+- **BR-SP22**: Membership applications auto-decline after 14 days if no action is taken by a club officer. The applicant is notified and may reapply.
+- **BR-SP23**: Club announcements are delivered via in-app notification only (no email in V1). Announcements are sent to active (confirmed) members of the club only. Pending applicants do not receive announcements.
+- **BR-SP24**: The minimum required fields for a club officer's activity request submission are: activity title, type, proposed date, description, and expected number of attendees. All other fields are completed by the Club Coordinator.
+- **BR-SP25**: Student participation records (activity history, volunteer hours, certificates) are private by default. Students can only view their own records. On activity pages, aggregate information is visible to all (e.g. "187 registered", attendee avatars), but full individual records are not accessible to other students.
+- **BR-SP26**: The following events trigger in-app notifications in the Student Portal: (1) Registration confirmed or added to waitlist; (2) Waitlist spot offered (notification includes countdown deadline); (3) Activity cancelled or rescheduled (for registered students); (4) Club membership application approved or declined; (5) Club activity request status changed (for club officers: Draft → In coordinator review → Pending manager approval → Approved / Rejected); (6) Club announcement received (from club officer to members); (7) Certificate issued; (8) Self-reported activity verified or rejected by coordinator.
 
 ---
 
@@ -1873,6 +1959,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 84 | Club Leader / club officer access: all club officers are students and access the system exclusively via the Student Portal "Workspace" tab. They never access SAMA. Their submissions create Drafts in SAMA for the Club Coordinator to process. | round 29 |
 | 85 | V1 flat officer permissions: all club officers (regardless of title) have identical access in the Student Portal "Workspace" tab. Differentiated officer permissions deferred to V2. | round 29 |
 | 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
+| 87 | Round 31 — Student Portal business rules (BR-SP6–SP26) added to §13.6 and §17. Key decisions: (a) Only Active-status activities visible in Explore tab; (b) Registration deadline is configurable per activity (no deadline = open until start); (c) No eligibility restrictions in V1 (deferred to V2); (d) Fee payment out of scope for V1 Student Portal; (e) Cancellation deadline is configurable per activity (new, overrides the Student Portal framing of existing §6.1 policy); (f) Waitlist confirmation window introduced as configurable per activity — this supersedes the prior auto-confirm rule in §7.3/BR-WL1, which is now scoped to the SAMA-default behavior; activity creator may choose to enable a confirmation window instead; (g) Volunteer hours goal is university-wide in system settings, not per student; (h) Self-reported external activity enters Pending verification before counting; (i) Certificate issuance mode is per-activity: Manual (coordinator issues explicitly) or Automatic (threshold-based) — activity creator chooses at setup; (j) Certificates have unique public verification URL, no login required; (k) Certificates do not expire; (l) Transcript is on-demand PDF, no registrar routing in V1; (m) No max club member count in V1; (n) Club leader blocked from leaving if sole remaining leader; (o) Membership applications auto-decline after 14 days; (p) Club announcements in-app only, active members only; (q) Minimum activity request fields defined; (r) Student participation records private by default; (s) 8 notification triggers defined for Student Portal. **Conflict resolved (post-round):** BR-SP11 (item f above) conflicted with BR-WL1 and §7.3, which stated promotion was always auto-confirm. Resolution: configurable confirmation window wins; auto-confirm is the default when no window is set by the coordinator, not the only mode. BR-WL1, §7.3, and BR-SP11 have all been updated to reflect this. | round 31 |
 
 ---
 
