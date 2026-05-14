@@ -392,36 +392,55 @@ This is the single state machine all activities (Event, Program, Workshop, Campa
 ### 5.1 States
 
 ```
-Draft → Submitted → Approved → Published → RegistrationOpen → RegistrationClosed → InProgress → Completed → Archived
-                       ↓             ↓             ↓                  ↓                ↓
-                    Rejected     Cancelled    Cancelled         Cancelled       Cancelled
+                                        ┌─────────────┐
+                                        ↓             │
+Draft → Submitted → Active/Published → Completed → Submitted for Closure → Closed → Archived
+           ↓              ↓               ↓
+        Rejected       Cancelled       Cancelled
+           ↓
+        (→ Draft)
+                    ↕ Postponed
 ```
 
-| State | Who can transition into it | Trigger |
+**Active/Published** is the single staff-visible state covering all operational sub-states. The system tracks 5 internal sub-states within Active/Published for automation purposes — staff see one state with contextual indicators (e.g. *"Active — Registration opens Oct 5 · 47 registered · In progress"*):
+
+| Internal sub-state | Trigger |
+|---|---|
+| Approved | Manager approves submission |
+| Published | Coordinator publishes after approval |
+| RegistrationOpen | `registration_opens_at` reached (system) |
+| RegistrationClosed | `registration_closes_at` reached or capacity full + waitlist closed (system) |
+| InProgress | `start_at` reached (system) |
+
+| Staff-visible state | Who transitions into it | Trigger |
 |-------|----------------------------|---------|
 | **Draft** | Coordinator, Manager | Activity created. Editable freely. |
-| **Submitted** | Coordinator | Coordinator clicks "Submit for approval". |
-| **Approved** | Manager (or auto for Manager-authored) | Manager approves. |
-| **Rejected** | Manager | Manager rejects with reason → returns to Draft with note. |
-| **Published** | Coordinator/Manager | Coordinator publishes after approval. Now visible to students. |
-| **RegistrationOpen** | system | When `registration_opens_at` is reached (and Published). |
-| **RegistrationClosed** | system | When `registration_closes_at` reached or capacity hit + waitlist closed. |
-| **InProgress** | system | When `start_at` reached. Activity stays InProgress past `end_at` until manually closed (see §14.1). |
-| **Completed** | Coordinator (own) / Manager | **Manual close only.** Coordinator clicks "Close activity" → completion calc runs, surveys dispatch, certificates generate. See §14.1. |
-| **Cancelled** | Coordinator (own) / Manager | Manual; sends notifications, marks all registrations Cancelled. |
-| **Archived** | Manager / system | After retention period (rule TBD; retention deferred). |
-| **(Reopen)** | Coordinator (own) / Manager | A Completed activity can be reopened with reason → state returns to InProgress. See §14.2. |
+| **Submitted** | Coordinator | Coordinator clicks "Submit for approval". Edits locked (Coordinator may withdraw → Draft). |
+| **Active / Published** | Manager (approve) → Coordinator (publish) | Manager approves; Coordinator publishes. Registration, check-in, attendance all happen here. |
+| **Postponed** | Coordinator | Coordinator postpones without fixing a new date. Students notified; can self-delist. No auto-refund. |
+| **Completed** | Coordinator (own) / Manager | Coordinator clicks "Mark as completed". Completion calc runs, surveys dispatch, certificates generate (auto mode), post-event window opens. |
+| **Submitted for Closure** | Coordinator | Coordinator clicks "Submit for closure" after completing post-event items. Triggers Manager review queue item. |
+| **Closed** | Manager | Manager reviews post-event summary and clicks "Close". Budget locked, transactions locked, attendance corrections locked. |
+| **Cancelled** | Coordinator (own) / Manager | Manual; requires reason. Notifies all registrants and waitlisters. Refunds triggered (see §7.8). |
+| **Archived** | system | System-internal only — not visible to staff. Triggered after retention period post-Closed. |
+| **(Rejected)** | Manager | Not a persistent state — Manager rejects Submitted activity → returns to Draft with reason. |
+| **(Reopen)** | Coordinator (own) / Manager | Completed activity reopened with reason → returns to InProgress (Active sub-state). See §14.2. |
 
 ### 5.2 Transition rules
 
 - A **Draft** activity is fully editable.
-- A **Submitted** activity locks edits except Coordinator may withdraw → back to Draft.
-- An **Approved** activity is editable by Coordinator with these constraints:
+- A **Submitted** activity locks edits. Coordinator may withdraw → back to Draft. For club activities, Club Leader may withdraw during Phase 1 only (before Club Coordinator approves Step 1). After Step 1 is approved, only Coordinator or Manager can return to Draft.
+- An **Active/Published** activity is editable by Coordinator with these constraints:
   - Date/time, location, description, capacity (raise or lower) → free; system notifies registrants on date/time/location change.
+  - Eligibility → free to widen or tighten; tightening does not affect existing registrants (grandfathered). New rules apply to new registrations only.
   - Budget **increase** → requires Manager re-approval; budget decrease is free.
-  - Activity **type** change → not allowed; cancel and create new.
-- **Cancellation** is allowed from Approved onward; requires reason. Notifies all registrants and waitlisters. Refunds applicable if fees were paid (see §10).
-- **Rejection** carries a Manager comment; Coordinator edits and resubmits.
+  - Activity **type** → cannot change post-creation.
+- **Postponed** is entered from Active only. Coordinator provides a reason. Students are notified and can self-delist (requesting refund via standard flow). Waitlist stays intact. New registrations paused. Activity hidden from Explore tab (no date). Re-activation: Coordinator sets a new date and re-activates → back to Active. No Manager re-approval needed. Postponed → Cancelled is also valid.
+- **Completed** is manual. Past `end_at`, activity stays InProgress and a "Ready to complete" badge appears in the Coordinator dashboard.
+- **Submitted for Closure** is triggered by Coordinator after post-event work is done. Checklist is shown as a pre-flight summary — not a hard gate. Coordinator can submit with incomplete items; Manager sees the full picture.
+- **Closed** is triggered by Manager after reviewing the post-event summary. Locks budget, transactions, and attendance corrections permanently.
+- **Cancellation** is allowed from Submitted onward; requires reason. Notifies all registrants and waitlisters. Refunds triggered to finance system for any paid registrations.
+- **Rejection** carries a Manager comment; activity returns to Draft. Coordinator edits and resubmits.
 
 ### 5.3 Per-type behavior
 
@@ -432,7 +451,7 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 
 ### 5.4 System-driven state changes
 - A scheduled job evaluates time-based transitions (registration open/close, in-progress) every minute.
-- The transition to **Completed is manual** (Coordinator/Manager clicks "Close activity"). Past `end_at`, the activity stays InProgress and a "Ready to close" badge surfaces in the Coordinator dashboard.
+- The transition to **Completed is manual** (Coordinator/Manager clicks "Mark as completed"). Past `end_at`, the activity stays InProgress and a "Ready to complete" badge surfaces in the Coordinator dashboard.
 - All state transitions emit `AuditEvent` and may trigger notifications.
 
 ---
@@ -447,11 +466,12 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
   - **Simple mode**: enter a single planned total amount and, optionally, the portion expected from students (e.g. "Total: AED 2,700 · Student contribution: AED 1,200"). Suitable for straightforward activities.
   - **Detailed mode**: enter cost line items, each tagged with who pays — University, Student, or Split (with percentages). The planned total and student contribution are auto-summed. Suitable for co-funded activities (e.g. trips, external events where students pay a portion).
   - Budget is optional; activities with no budget entered behave as zero-budget.
-  - All activity types have a Budget tab; only activities in Approved or Active state allow transaction recording.
+  - **Mode switching**: Coordinator can switch between simple and detailed mode at any point before submission. Switching simple → detailed is always allowed. Switching detailed → simple requires explicit confirmation (*"Switching to simple mode will discard all line items. This cannot be undone."*); the planned total from detailed mode carries over as the simple starting amount.
+  - All activity types have a Budget tab; only activities in Active state (post-approval) through Completed allow transaction recording. Budget is fully locked (no transactions, no change requests) once the activity reaches Closed.
   - **Registration fee validation**: if a detailed budget has student-funded line items, the system compares the implied per-student cost against the registration fee set on the activity. If they do not match, a warning is shown: *"Budget shows AED 60/student but registration fee is set to AED 50 — update one to keep them aligned."* The fields remain independent; neither auto-updates the other.
   - For Club-organised activities: the Club Leader enters the planned amount at creation as a budget suggestion (write access in Draft state only); the Club Coordinator may adjust it before submission; the Manager sets the approved amount at final approval. See §12.9 for the full budget flow.
 - Activity may carry **Prerequisites** (must have Completed activity X).
-- Activity may carry **Eligibility** (year, program, gender, custom).
+- Activity may carry **Eligibility** (year, program, gender, custom). **Default is open to all enrolled students** (`eligibility_rules = null`). Coordinator optionally restricts at creation or post-publish. Eligibility rules are enforced at both catalog display and registration time — ineligible students do not see the activity in the catalog and cannot register. Post-publish tightening grandfathers existing registrants (see §6.4).
 - File **Attachments** (poster, agenda, consent forms, etc.).
 - **Cancellation policy** — Coordinator picks one of:
   - **No cancellation** — once registered, the student cannot self-cancel (must contact Coordinator).
@@ -521,7 +541,8 @@ Club Leader receives approval notification in Student Portal → can Publish
 - **Notifications on Club Leader submission**: on submission by a Club Leader, notifications go to: (a) all Club Coordinators assigned to that club, and (b) the Club Advisor(s) assigned to that club (for awareness only — not an action item for Advisors).
 - **Notification on Coordinator step-1 approval**: after a Club Coordinator approves step 1, the Manager receives a notification: "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval."
 - **Rejection at step 1 (Coordinator)**: activity returns to Draft with the Coordinator's rejection note. Club Leader can edit and resubmit.
-- **Rejection at step 2 (Manager)**: activity returns to Submitted with `coordinator_approval_phase = coordinator_approved` so the Club Leader can see the Manager's rejection reason without needing to redo the coordinator review step. The Club Leader can revise and the Coordinator can re-approve (or the Manager may choose to approve directly on resubmission).
+- **Rejection at step 2 (Manager)**: activity returns to Submitted with `coordinator_approval_phase = coordinator_approved` so the Club Leader can see the Manager's rejection reason without needing to redo the coordinator review step. The Club Leader must make an edit and resubmit — the Coordinator then re-approves (Step 1), and the Manager reviews again. The Club Leader cannot bypass Step 1 re-approval; the Coordinator cannot re-approve without a Club Leader resubmission.
+- **Club Leader withdrawal**: a Club Leader may withdraw their own submission from the Student Portal Workspace tab during Phase 1 only (while `coordinator_approval_phase = pending`). Withdrawal returns the activity to Draft with a reason. Once a Club Coordinator approves Step 1, withdrawal authority transfers to DSS staff only (Coordinator or Manager).
 - **Club Advisor**: not in the approval chain. Receives a read-only FYI notification after Manager final approval.
 
 ### 6.3 Publishing & discovery
@@ -534,6 +555,7 @@ Club Leader receives approval notification in Student Portal → can Publish
   - Description, location, attachments, eligibility (with caution — see §11.3), category/tags → free; if existing registrants are affected, system flags this.
   - Date/time → free; system auto-notifies all registered + waitlisted users via in-app + email + push. Students may cancel within the cancellation cutoff.
   - Capacity → raise or lower freely. Lowering moves the most recently registered to the waitlist (FIFO from top: keep earliest registrants); audit-logged.
+  - Eligibility → free to widen or tighten post-publish. **Tightening is grandfathered**: students who registered before the change keep their spots regardless of the new rules. New rules apply only to new registrations. Affected (grandfathered) registrants are flagged in the roster with a *"Registered before eligibility update"* indicator. If a Coordinator needs to remove a grandfathered student, they use the manual remove participant action with a reason.
   - Budget → decrease free; **increase requires Manager approval** (creates a "Budget change request" item in Manager queue).
 - Activity type cannot change post-creation.
 
@@ -603,6 +625,8 @@ A DSS Risk Assessment must be completed for every off-campus activity, regardles
 
 **Printable**: the completed form can be exported as a formatted PDF for physical records or archiving.
 
+**Who fills it**: the **Lead Supervisor** completes Appendix A for all off-campus activities — standard and club-organized alike. The Lead Supervisor defaults to the activity's owner Coordinator and is reassignable to any active DSS staff member. For club trips, the Club Coordinator's responsibility is to assign the Lead Supervisor and approve the chain — not to fill the form themselves.
+
 **Timing**: the Appendix A form must be completed before the activity can be submitted for Manager approval.
 
 #### 6.8.2 HSE sign-off (conditional)
@@ -639,7 +663,9 @@ Manager formally approves or requests changes
 Manager approval clears the trip to proceed
 ```
 
-**When HSE is NOT triggered** (all 4 risk questions are "No"): Appendix A is completed by the Coordinator and reviewed/countersigned by the DSS Manager only. No HSE involvement.
+**HSE delinquency — escalation timeline**: if HSE has not submitted their EHS form within the expected window, SAMA sends escalating reminders rather than blocking Manager approval. Timeline: Day 1 → reminder to HSE queue; Day 3 → escalation notification to HSE manager; Day 5 → warning notification to DSS Manager. Manager is never hard-blocked — they see a prominent warning banner if proceeding before HSE submits, and the decision is audit-logged.
+
+**When HSE is NOT triggered** (all 4 risk questions are "No"): Appendix A is completed by the Lead Supervisor and reviewed/countersigned by the DSS Manager only. No HSE involvement.
 
 **HSE Portal — what HSE sees:**
 - Queue of pending risk assessments awaiting their input
@@ -675,7 +701,7 @@ Manager reviews: activity details + budget + Appendix A + EHS form (if applicabl
 Manager gives final approval
 ```
 
-The Club Coordinator is responsible for completing the Appendix A form on behalf of the Lead Supervisor for club trips. The Lead Supervisor role is assigned from the activity detail view.
+The Club Coordinator is responsible for assigning a Lead Supervisor to the trip and approving the chain. The Lead Supervisor (a DSS staff member, defaulting to the owner Coordinator) completes Appendix A — same as for standard activities. The Lead Supervisor role is assigned from the activity detail view before Appendix A can be submitted.
 
 ---
 
@@ -723,14 +749,16 @@ Custom items are modelled after the existing Tasks pattern (§14 follow-up tasks
 ## 7. Module — Registration & waitlist
 
 ### 7.1 Student registration
-- Student opens an activity → sees details, seats remaining, schedule, eligibility match, prerequisites status.
+- Student opens an activity → sees details, seats remaining, schedule, eligibility match, prerequisites status. Ineligible students do not see the activity in the catalog at all (filtered out). If they somehow reach the activity URL directly, they see a *"You are not eligible for this activity"* message.
 - Student clicks **Register**:
   - System validates: registration window open, eligibility match, prerequisites met, no schedule conflict (see §7.5), capacity not full (or waitlist enabled).
-  - If activity has `is_off_campus = true` → consent form gate activates before registration is confirmed (see §7.1.7).
-  - If activity has `requires_approval = true` → registration enters **Pending** (see §7.1.5).
+  - If activity has `is_off_campus = true` → consent fields are embedded in the registration form and must be completed before the submit button is active (see §7.1.7). This applies regardless of whether `requires_approval` is also true — one form, one submission.
+  - If activity has `requires_approval = true` → registration form also includes the application questions (§6.1); registration enters **Pending** on submission (see §7.1.5).
   - Else if seats available → **Registered**.
   - Else if capacity full and waitlist enabled → **Waitlisted** with position.
   - If invalid → reason shown.
+- **Schedule conflict on registration**: if a conflict is detected with an existing Registered activity, student is warned and blocked (see §7.5).
+- **Schedule conflict on waitlist promotion**: when a waitlisted student is auto-promoted to Registered, the system does NOT re-check for schedule conflicts. The student is promoted regardless. Both the student and the Coordinator receive a notification. The student's row in the activity roster is flagged with a conflict indicator until the student resolves it (by cancelling one of the conflicting activities). The flag clears automatically on resolution.
 - Confirmation: in-app + email + push notification with calendar (.ics) attachment for Email.
 
 ### 7.1.7 Off-campus consent form gate (Appendix B)
@@ -741,15 +769,20 @@ For any activity with `is_off_campus = true`, students must complete a Consent &
 
 - **Trip details** (pre-filled, read-only): activity name, date(s), lead supervisor name
 - **Student details** (pre-filled from profile, read-only): full name, student ID, program/year, contact number
-- **Emergency contact**: name, relationship, contact number (student fills; stored on registration)
-- **Medical declaration**: "Do you have any pre-existing medical conditions, allergies, or physical limitations relevant to this trip?" — Yes/No. If Yes, free-text details field. Disclosure is explicitly saved to the student's health profile in the Health module (consent language makes this clear on the form).
+- **Emergency contact**: pre-filled from the student's profile emergency contact (name, relationship, phone). Editable — student may update for this specific trip. The value on the consent form is the authoritative emergency contact for the Lead Supervisor on the day.
+- **Existing health flags** (pre-filled, read-only — from Health module): if the student has any health flags on record (chronic conditions, allergies, physical limitations), these are displayed read-only. The student acknowledges them with a checkbox: *"I confirm the above health information is accurate. I accept responsibility for any undisclosed conditions."* No editing in the form — updates must be made via the clinic. Only Health module flags surface here — counseling, psychological, and wellbeing records are excluded entirely.
+- **Medical declaration**: "Do you have any additional pre-existing medical conditions, allergies, or physical limitations relevant to this trip not shown above?" — Yes/No. If Yes, free-text details field.
 - **Insurance document upload** (international trips only, `trip_classification = International`): student uploads proof of valid health insurance coverage (PDF/image). Required field for international trips.
 - **Liability waiver acknowledgment**: checkbox — student confirms voluntary participation and releases the university from liability except in cases of gross negligence.
 - **Code of conduct acknowledgment**: checkbox — student agrees to comply with the university Code of Conduct and supervisor instructions.
 
-**On submission**: registration enters Registered (or Pending if `requires_approval = true`). The consent record is stored against the registration. Consent status is visible per student in the Registrations tab in SAMA — Coordinators see a column: `Consent: ✓ / Pending`.
+**Submit button behaviour**: all required fields and checkboxes must be completed before the submit button is active. This applies equally when the form is embedded in a `requires_approval` registration — one form, one submission.
 
-**Medical declaration → Health module**: when the student submits a medical declaration with details, the disclosed information is appended to their health profile record in the Health module. The form clearly states: *"Any health information you disclose here will be saved to your university health record and may be viewed by health staff."* The student must acknowledge this before submitting.
+**On submission**: medical declaration details (new disclosures) are written to the student's Health module HealthProfile record immediately on submission — even if the registration is in Pending state awaiting approval. The form clearly states: *"Any health information you disclose here will be saved to your university health record and may be viewed by health staff."* Registration status (Registered or Pending) does not gate the Health module write.
+
+**Health flags visibility**: students see their own health flags (chronic conditions, allergies) only in this consent form context. Health flags are not visible to students anywhere else in the Student Portal.
+
+**Guest consent form (simplified)**: when `allow_guest_registration = true` and `is_off_campus = true`, guests (non-students registering via public signed URL) see a simplified consent form. Guest-specific fields: full name, email, phone (pre-filled from registration), emergency contact (guest fills), medical declaration (free text, yes/no — stored on registration record only, not written to any health profile), liability waiver, code of conduct. Health flags pre-fill does not apply to guests (no health profile). Insurance upload applies to international trips for guests too.
 
 **SAMA view**: the Registrations tab for off-campus activities shows a `Consent` status column. Coordinator can filter by students who have not yet submitted their consent form and send a reminder via the Comms tab.
 
@@ -761,7 +794,7 @@ For any activity with `is_off_campus = true`, students must complete a Consent &
 - **Queue ceiling**: no cap. Coordinator manages however large the queue grows. Pagination + filters (by application date, eligibility match, prior-rejection flag) help triage.
 - Coordinator (own) or Manager opens the **Application queue** for the activity, reviews each pending entry, and clicks **Approve** or **Reject (with reason)**:
   - **Approve** → registration → **Registered**; notification to student. If approving would exceed capacity, system warns; Coordinator can override (counts as manual capacity raise — audit-logged).
-  - **Reject** → registration → **Rejected** with reason; notification to student.
+  - **Reject** → registration → **Rejected** with reason; notification to student. Rejection reason is visible to the student in their Student Portal registration history. If the activity has a fee and a payment reference was created by the finance system, SAMA shows a second confirmation prompt: *"This student has a pending payment reference. Send cancellation to finance?"* — Coordinator must explicitly confirm before the cancellation event is sent to finance. This is a deliberate second click, not automatic.
 - **Reapply behavior** (per activity's `reapply_policy`, set at creation):
   - `unlimited`: rejected student can submit a new application as long as the registration window is open. Each new application is a new Registration row (preserving full history of past rejections, visible to Coordinator).
   - `one_retry`: a single second application is allowed after a first rejection. After a second rejection, blocked.
@@ -1301,7 +1334,7 @@ These rules govern student-facing behavior in the Student Portal. They complemen
 
 - **BR-SP6**: Only activities with status = Active (Published, RegistrationOpen) are visible in the Explore tab. Activities in Draft, Pending Approval, Rejected, Cancelled, or Completed states are not shown.
 - **BR-SP7**: Each activity has a configurable registration deadline set by the coordinator. After the deadline, registration is closed and the student cannot register from the Student Portal. Activities with no deadline set allow registration until the event start time.
-- **BR-SP8**: Activities are open to all enrolled students with no eligibility restrictions in V1. Eligibility filtering (by major, year, gender) is deferred to V2.
+- **BR-SP8**: Eligibility rules are enforced in V1. Default is open to all enrolled students (`eligibility_rules = null`). Coordinator optionally sets rules (year, program, gender, custom) at creation or post-publish. Ineligible students do not see the activity in the catalog and are blocked from registration. Post-publish tightening grandfathers existing registrants.
 - **BR-SP9**: Fee payment for paid activities is out of scope for V1. The student portal captures registration intent only. Fee handling is managed by a separate process (TBD).
 
 #### Cancellation & Waitlist
@@ -1361,34 +1394,62 @@ These rules govern student-facing behavior in the Student Portal. They complemen
 
 This module defines what happens after `end_at` passes: closure, surveys, certificates, media gallery, follow-up tasks, and cloning. Activity types differ in detail (Campaigns may skip surveys/certificates) but follow the same flow.
 
-### 14.1 Closure mechanics
+### 14.1 Closure mechanics — two-step
 
-- **Manual close only**. After `end_at`, the activity remains in **InProgress** until the Coordinator (own) or Manager clicks **Close activity**. The system does NOT auto-close.
-- The Coordinator dashboard surfaces a **"Ready to close"** badge for any InProgress activity past `end_at` so they don't forget.
-- **No automatic notification escalation.** A "Ready to close" widget on the Manager dashboard lists all activities past `end_at` (sortable by days-overdue, owning Coordinator) so Manager has a single visible queue. No emails, no push, no auto-escalation. Rationale: closure has too many side effects (cert issuance, survey dispatch) to nag aggressively about, and Coordinators monitor their own dashboards.
-- Pre-close checklist shown to Coordinator (warnings, not blockers — they can close anyway):
-  - Attendance recorded for all sessions.
-  - Budget transactions reconciled (actual vs. approved).
-  - Optional post-event report filled (template available).
-  - Media uploaded (optional).
-  - Follow-up tasks created (optional).
-- On click **Close activity**:
+The closure process is split into two explicit steps: Coordinator completes the activity, then Manager formally closes it. This separates "the event is over" from "all admin is wrapped up."
+
+#### Step 1 — Coordinator marks activity Completed
+
+- **Manual only**. After `end_at`, the activity remains **InProgress** until the Coordinator (own) or Manager clicks **Mark as completed**. The system does NOT auto-complete.
+- The Coordinator dashboard surfaces a **"Ready to complete"** badge for any InProgress activity past `end_at`.
+- On click **Mark as completed**:
   1. Activity state → **Completed**.
   2. Final completion calculation runs: each registration evaluated against attendance threshold → status set to **Completed** or **Failed**; remaining unresolved → **NoShow**.
   3. Standard survey is dispatched to all attendees (in-app + email + push).
   4. Certificates are generated for those who Completed (per §9), but **visibility/download depends on survey gating** — see §14.3.
-  5. Audit event logged.
+  5. Post-event window opens: manual certificate issuance, attendance corrections (within configurable window), transaction recording for late invoices, post-trip report filing (off-campus only).
+  6. Audit event logged.
 
-### 14.2 Reopening a closed activity
+#### Step 2 — Coordinator submits for closure
 
-- Coordinator (own) or Manager can **Reopen** a Completed activity with a reason (audit-logged).
+- Once satisfied that post-event items are done, Coordinator clicks **Submit for closure**.
+- The activity's Checklist tab is shown as a pre-flight summary — outstanding items are visible but not a hard gate. Coordinator can submit with incomplete items.
+- Activity state → **Submitted for Closure**. Manager receives a review queue item.
+
+#### Step 3 — Manager closes
+
+- Manager reviews the post-event summary: checklist completion, survey response rate, certificates issued, budget reconciled, post-trip report (if off-campus).
+- Manager clicks **Close**. Activity state → **Closed**.
+- On **Closed**:
+  - Budget locked: no further transactions or change requests accepted.
+  - Attendance corrections locked.
+  - Activity enters the archival queue (system-internal Archived state after retention period).
+  - Audit event logged.
+- **Manager dashboard**: a "Pending closure" widget lists activities in Submitted for Closure state, sortable by days waiting and owning Coordinator.
+- Manager can reject the closure submission (returns to Completed with a note) if post-event items are outstanding.
+
+#### What's allowed in the Completed window (between Step 1 and Step 3)
+
+| Action | Allowed in Completed? | Locked at Closed? |
+|---|---|---|
+| Record budget transactions (late invoices) | ✓ | ✓ locked |
+| Submit budget change request | ✓ | ✓ locked |
+| Issue certificates manually | ✓ | — |
+| Correct attendance (within window) | ✓ | ✓ locked |
+| File post-trip report (off-campus) | ✓ | — |
+| Add follow-up tasks | ✓ | — |
+| Reopen activity | ✓ | — |
+
+### 14.2 Reopening a Completed activity
+
+- Coordinator (own) or Manager can **Reopen** a Completed activity with a reason (audit-logged). Activities in Submitted for Closure or Closed state cannot be reopened — Manager must first reject the closure submission.
 - On reopen:
-  - State → **InProgress**.
+  - State → **InProgress** (Active internal sub-state).
   - Attendance becomes editable again by Coordinator/Employee.
-  - Surveys remain open (already dispatched stay valid; new attendees added would receive a new dispatch on next close).
+  - Surveys remain open (already dispatched stay valid; new attendees added would receive a new dispatch on next completion).
   - Issued certificates **remain valid** (verifiable via public URL). They are not retracted automatically — to revoke, use the explicit Revoke action (§9.3) which is logged separately.
   - Follow-up tasks remain unchanged.
-- Re-closure runs the same pipeline as §14.1, with one difference: only newly-completed registrations get NEW certificates; existing certificates are not re-issued unless explicitly regenerated.
+- Re-completion runs the same pipeline as Step 1 above, with one difference: only newly-completed registrations get NEW certificates; existing certificates are not re-issued unless explicitly regenerated.
 
 ### 14.3 Surveys & feedback
 
@@ -2061,6 +2122,18 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-TR11**: The post-trip evaluation report (incident log + logistics assessment) appears in the Feedback tab for off-campus activities when status is `Completed`. It is not a closure gate. Manager is notified if the report has not been submitted 48 hours after the activity is closed.
 - **BR-TR12**: Checklist items are activity-scoped. System-suggested items are auto-generated based on activity configuration. Custom items can be added by any Coordinator assigned to the activity. Neither system nor custom items are hard gates on activity progression.
 
+### Activity lifecycle — new states
+
+- **BR-LC1**: The activity lifecycle has two closure steps. Step 1: Coordinator clicks "Mark as completed" → Completed state (surveys dispatch, certificates generate, post-event window opens). Step 2: Coordinator clicks "Submit for closure" → Submitted for Closure. Step 3: Manager reviews and clicks "Close" → Closed. Budget, transactions, and attendance corrections are locked at Closed.
+- **BR-LC2**: Budget change requests and transaction recording are allowed in Completed state. Both are locked once the activity reaches Closed. No exceptions.
+- **BR-LC3**: Postponed state is entered from Active only, by Coordinator action. No new date is set at postponement time (this is distinct from editing the activity date). Students are notified and may self-delist. Self-delist triggers the standard cancellation and refund request flow — no automatic refund. Waitlist stays intact. New registrations are paused while Postponed.
+- **BR-LC4**: A Postponed activity may transition to Active (Coordinator sets a new date and re-activates — no Manager re-approval needed, original approval carries over) or to Cancelled.
+- **BR-LC5**: Activities in Submitted for Closure or Closed state cannot be reopened directly. Manager must reject the closure submission (returning to Completed) before the Coordinator can reopen.
+- **BR-LC6**: Eligibility rules are enforced at both catalog display and registration time. Default `eligibility_rules = null` means open to all enrolled students. Post-publish tightening grandfathers existing registrants — new rules apply to new registrations only. Grandfathered registrants are flagged in the roster.
+- **BR-LC7**: Club Leader may withdraw a submitted club activity from the Student Portal Workspace tab during Phase 1 only (while `coordinator_approval_phase = pending`). After Club Coordinator approves Step 1, withdrawal authority transfers to DSS staff only.
+- **BR-LC8**: After Manager rejection at Step 2 of the club approval chain, the Club Leader must make an edit and resubmit. The Club Coordinator then re-approves (Step 1) and the Manager reviews again. The Coordinator cannot re-approve without a Club Leader resubmission.
+- **BR-LC9**: When a waitlisted student is auto-promoted to Registered, schedule conflicts are not re-checked. The student is promoted regardless. Both student and Coordinator are notified. The student's roster row is flagged with a conflict indicator until resolved.
+
 ### Cross-cutting: edits, lifecycle, language, notifications, welfare matrix
 - **BR-CC1 (Optimistic locking)**: every editable entity has a `version` field. Save is rejected if version differs; UI shows field-by-field conflict diff and offers reload-and-reapply. No silent overwrites.
 - **BR-CC2 (Account lifecycle)**: account activation/deactivation lives in the IdP, not SAMA. SAMA records persist after a user becomes inactive; Manager is nagged when an inactive user owns active activities; no auto-cancel of student registrations on departure.
@@ -2097,7 +2170,7 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 
 - **BR-SP6**: Only activities with status = Active (Published, RegistrationOpen) are visible in the Explore tab. Draft, Pending Approval, Rejected, Cancelled, and Completed activities are not shown.
 - **BR-SP7**: Each activity has a configurable registration deadline set by the coordinator. After the deadline, registration is closed. Activities with no deadline set allow registration until the event start time.
-- **BR-SP8**: Activities are open to all enrolled students with no eligibility restrictions in V1. Eligibility filtering (by major, year, gender) is deferred to V2.
+- **BR-SP8**: Eligibility rules are enforced in V1. Default is open to all enrolled students (`eligibility_rules = null`). Coordinator optionally sets rules (year, program, gender, custom) at creation or post-publish. Ineligible students do not see the activity in the catalog and are blocked from registration. Post-publish tightening grandfathers existing registrants.
 - **BR-SP9**: Fee payment for paid activities is out of scope for V1. The student portal captures registration intent only. Fee handling is managed by a separate process (TBD).
 - **BR-SP10**: Cancellation deadline is configurable per activity by the coordinator. After the deadline, students cannot cancel without coordinator intervention.
 - **BR-SP11**: Waitlist confirmation window is configurable per activity by the coordinator. If a student does not confirm within the window after a spot is offered, the spot passes to the next person on the waitlist and the original student is notified.
@@ -2440,6 +2513,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
 | 87 | Round 31 — Student Portal business rules (BR-SP6–SP26) added to §13.6 and §17. Key decisions: (a) Only Active-status activities visible in Explore tab; (b) Registration deadline is configurable per activity (no deadline = open until start); (c) No eligibility restrictions in V1 (deferred to V2); (d) Fee payment out of scope for V1 Student Portal; (e) Cancellation deadline is configurable per activity (new, overrides the Student Portal framing of existing §6.1 policy); (f) Waitlist confirmation window introduced as configurable per activity — this supersedes the prior auto-confirm rule in §7.3/BR-WL1, which is now scoped to the SAMA-default behavior; activity creator may choose to enable a confirmation window instead; (g) Volunteer hours goal is university-wide in system settings, not per student; (h) Self-reported external activity enters Pending verification before counting; (i) Certificate issuance mode is per-activity: Manual (coordinator issues explicitly) or Automatic (threshold-based) — activity creator chooses at setup; (j) Certificates have unique public verification URL, no login required; (k) Certificates do not expire; (l) Transcript is on-demand PDF, no registrar routing in V1; (m) No max club member count in V1; (n) Club leader blocked from leaving if sole remaining leader; (o) Membership applications auto-decline after 14 days; (p) Club announcements in-app only, active members only; (q) Minimum activity request fields defined; (r) Student participation records private by default; (s) 8 notification triggers defined for Student Portal. **Conflict resolved (post-round):** BR-SP11 (item f above) conflicted with BR-WL1 and §7.3, which stated promotion was always auto-confirm. Resolution: configurable confirmation window wins; auto-confirm is the default when no window is set by the coordinator, not the only mode. BR-WL1, §7.3, and BR-SP11 have all been updated to reflect this. | round 31 |
 | 89 | Round 33 — Settings module specified (§15a). Key decisions: (a) Settings page is structured as an 8-tab bar (General, People & Roles, Modules, Notifications, Academic Calendar, Certificates, Integrations, Audit Log), using the same tab-bar visual pattern as activity detail views; (b) Access model: Manager has full access to all tabs; Coordinators can be granted access to specific tabs by the Manager (per-tab delegation, not per-field); Students and Club Officers have no Settings access; (c) Three tabs are non-delegatable and Manager-only: People & Roles, Certificates, and Audit Log; (d) Module toggling is IT-only at deployment; Manager configures settings within enabled modules but cannot enable or disable modules from the UI; (e) Tab coverage — General: branding (university name, logo), timezone (default Asia/Dubai), currency (default AED, set once at deployment), locale (English V1), support contact email; People & Roles: staff accounts (add/deactivate/view last login), role assignment UI, delegated settings access, student roster (read-only), SIS sync status + manual trigger, profile photo moderation queue; Modules: enabled module list (read-only toggle, IT-managed), per-module configurable settings; Notifications: email sender identity, notification templates (override subject/body per type), quiet hours, delivery channel defaults, link to undelivered report; Academic Calendar: semesters (CRUD), holidays and breaks, volunteer hours semester target (system-wide, updated per semester), certificate academic year label; Certificates: certificate template (layout, signatory, preview), numbering format, certificate types, system-wide defaults for survey gating and issuance mode; Integrations: status views for SIS/Finance/SSO/Email/Push providers — all credential and endpoint config is IT-only, Manager can trigger manual SIS sync; Audit Log: full searchable/filterable viewer, CSV export, append-only. Business rules BR-SET1–BR-SET8 added to §17. Settings row added to §3.2 permission matrix. | round 33 |
+| 91 | Round 35 — Full PRD logic audit (47 issues identified and resolved). Key decisions: (1) Eligibility enforced in V1 — default open to all, Coordinator optionally restricts; BR-SP8 updated; catalog and registration both enforce rules; (2) Appendix A filled by Lead Supervisor for ALL trips (standard and club) — Club Coordinator assigns Lead Supervisor, not fills the form; permission matrix conflict resolved; (3) Consent fields embedded in registration form, submit greyed out until complete — applies equally when requires_approval is also true; (4) Medical declaration flows to Health module on submission even if Pending; health flags (conditions/allergies only, no psych) pre-populate consent form read-only; student acknowledges existing flags; updates via clinic only; students see health flags in consent form context only; (5) HSE delinquency: escalating reminders (Day 1 HSE, Day 3 HSE manager, Day 5 DSS Manager), no hard block, Manager proceeds with warning + audit trail; (6) Waitlist auto-promotion: no conflict re-check, promote regardless, student + coordinator notified, conflict flag on roster row until resolved; (7) Guest off-campus consent: simplified form, no health profile write; (8) Budget mode switching: two-way before submission, detailed→simple requires confirmation, planned total carries over; (9) Activity lifecycle redesigned — two-step closure: Completed (Coordinator) → Submitted for Closure (Coordinator) → Closed (Manager). Budget/transactions/attendance locked at Closed. Postponed state added (Coordinator, no date, students notified, self-delist, no auto-refund, re-activates without re-approval). Archived stays system-internal. Active/Published collapses 5 internal sub-states into one staff-visible state; (10) Health flags visible to students in consent form context only — not elsewhere in Student Portal; (11) Club Leader withdraw: Phase 1 only; after Step 1 approval, DSS staff only can return to Draft; (12) Post-publish eligibility tightening: grandfathered for existing registrants, new rules apply to new only, roster flag on affected students; (13) Club Step 2 rejection re-approval: Club Leader must edit and resubmit, Coordinator re-approves, Manager reviews again; (14) Finance cancellation for rejected Pending registrations: second explicit Coordinator confirmation click required, not automatic; Lower priority items also resolved: rejection reason visible to Club Leaders; Manager recovery = IT backend; emergency contact pre-filled from profile, editable per trip; audit trail for Manager override = standard log; certificate verification shows full certificate; survey library edits apply to new activities only. Business rules BR-LC1–BR-LC9 added. | round 35 |
 | 90 | Round 34 — Off-campus trips & risk compliance integrated from the university Trips Policy (DSS/HSE, 2025). Key decisions: (1) Off-campus represented as `is_off_campus` toggle on any activity type — not a new type; (2) Trip classification: Domestic Day / Domestic Overnight / International; hazard sub-types deferred to v2 — replaced by 4 yes/no risk trigger questions (international, overnight, 50+ participants, non-standard activity); (3) HSE interaction: separate lightweight HSE Portal (SSO login, same backend), HSE fills their own EHS scoring form in-portal, Manager gives formal approval — hard gate; High/Catastrophic residual risk requires Manager written override reason; (4) DSS Risk Assessment (Appendix A): fully structured in-SAMA form, pre-filled where possible, printable as PDF; (5) Student consent form (Appendix B): gate on registration in Student Portal, pre-filled from profile, includes medical declaration, liability waiver, emergency contacts, insurance upload for international trips; (6) Medical declaration flows into Health module HealthProfile record — student explicitly informed on form; (7) Supervision ratio: soft warning only, 1:25 domestic / 1:15 international, real time, Coordinator is default Lead Supervisor; (8) Activity Checklist tab on every activity: system-suggested items (auto-generated per configuration, Coordinator confirms) + custom items (free text, optional assignee + due date); physical items manually confirmed; not a hard gate; (9) Post-trip report extends Feedback tab for off-campus Completed activities: incident log + logistics assessment above student survey; not a closure gate; (10) Club off-campus trips: Appendix A + HSE sign-off required before Club Coordinator can complete Step 1 approval — Manager sees full compliance picture at final approval; (11) International health insurance: Coordinator confirms via checklist item; students upload proof in consent form; (12) Trips reporting: out of scope for v1. New platform surface: HSE Portal added to §2.5. New §6.8 (Off-campus trips & risk compliance), §6.9 (Checklist tab), §7.1.7 (Consent form gate), §4.17 (data model), §14.8 (post-trip report). Business rules BR-TR1–BR-TR12 added. | round 34 |
 | 88 | Round 32 — Four sets of decisions confirmed and documented: (1) **Comms tab** (§6.7): the activity detail view Comms tab is formally specified with two sections — Announcements (external, one-way broadcast to confirmed registrants via in-app + email, with history log showing timestamp/sender/delivery count) and Briefing notes (internal, staff-only, free text, no attachments in V1). Business rules BR-CM1–CM3 added: announcements only when Active or Pending Approval; briefing notes not versioned in V1 (last save overwrites, audit-logged); announcements to confirmed registrants only (not waitlisted). (2) **Student onboarding and SIS integration** (§4.16): primary method is SIS batch import (nightly by default); fallback is Manual CSV upload by Manager or IT. Students pre-exist in SAMA before first login. First SSO login matches by email/student ID; unmatched creates a new record. Single source of truth shared by SAMA and Student Portal. Enrollment status sync: SIS inactive/withdrawn flags the student in SAMA and notifies Coordinators; SSO access continues until IdP disables. Staff provisioning: Manager-created via Settings, or IT-seeded for bootstrap. First Manager account seeded by IT with no dependency on role-assignment workflow. Business rules BR-ON1–ON4 confirmed. (3) **Survey gating and certificate issuance independence** (§9.2, §13.6, §14.3): confirmed as two independent per-activity settings. Issuance mode (Manual or Auto) and survey gating (On or Off) are orthogonal; any combination is valid. Four-combination matrix documented in §9.2. BR-SP14, BR-SV1, BR-SV2 added to §13.6/§17: survey gating On + 30-day auto-unlock triggers an in-app notification to the student. (4) **Welfare V1 scope and module extensibility**: V1 Welfare module covers Health and Counseling only. Housing and all other welfare service types are deferred to V2. §11.0 permission matrix updated to remove Housing and Other columns/rows. Note added directing future modules to the extensibility pattern. New §2.6 (Module extensibility) documents the registration pattern for future modules: own nav entry, own role assignment type, own permission matrix row, own data model section, own BR block. V1 module inventory listed. Planned future modules documented for architectural awareness (Housing, Alumni, Internships, Financial Aid). BR-EXT1 (modules independently gated) and BR-EXT2 (future modules follow registration pattern) added. | round 32 |
 
