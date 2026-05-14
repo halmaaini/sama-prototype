@@ -45,6 +45,13 @@ A web + PWA platform for a university Student Activities & Welfare department to
 | **Coordinator** | Plans and runs activities; submits for approval; manages own activities. |
 | **Employee** | Operational staff: takes attendance, runs sessions, runs welfare services. |
 | **Student** | End user who registers for activities and uses welfare services. |
+| **Off-campus activity** | Any activity with `is_off_campus = true`, taking place outside university premises. Triggers additional risk compliance requirements. |
+| **Lead Supervisor** | The DSS staff member designated as primary on-the-ground point of accountability for an off-campus activity. Defaults to the activity's owner Coordinator; reassignable. |
+| **DSS Risk Assessment (Appendix A)** | Structured pre-trip risk form completed by the Lead Supervisor in SAMA for every off-campus activity. Covers 7 hazard categories and contingency prep. |
+| **EHS form** | HSE's own technical risk scoring form (Severity × Probability matrix), completed by an HSE Officer in the HSE Portal when triggered. Linked to the DSS Risk Assessment for the same activity. |
+| **HSE trigger** | Any of 4 conditions that require HSE involvement: international trip, overnight trip, 50+ participants, non-standard activity (see §6.8). |
+| **HSE Portal** | Lightweight web portal used exclusively by Health & Safety (HSE) staff to view pending risk assessments and submit their EHS form. Shares the same backend as SAMA. SSO login. |
+| **Consent form** | Per-student form completed at registration for off-campus activities (Appendix B of the Trips Policy). Covers medical declaration, emergency contacts, liability waiver, code of conduct acknowledgment. |
 
 ---
 
@@ -52,12 +59,15 @@ A web + PWA platform for a university Student Activities & Welfare department to
 
 SAMA is a **hybrid platform**: two distinct UI surfaces backed by a single shared data layer and API. They are not separate systems — they read and write the same database, the same activity records, the same club data. The distinction is purely at the surface (UI/UX and access entry point).
 
-### The two surfaces
+### The three surfaces
 
 | Surface | What it is | Design philosophy | Who uses it |
 |---------|-----------|-------------------|-------------|
 | **SAMA** | Internal staff tool | Desktop-first, information-dense, multi-panel layouts | Manager, Coordinator, Club Coordinator, Nurse, Counselor, Club Advisor |
 | **Student Portal** | Student-facing product | Mobile-first PWA, simplified navigation, task-oriented | All enrolled students (including those who also hold club officer roles) |
+| **HSE Portal** | Lightweight risk review portal | Simple queue + form UI, desktop-accessible | HSE (Health & Safety) staff — university employees with university SSO |
+
+The HSE Portal is a purpose-built surface, not a full product. It exposes only what HSE needs: a queue of pending risk assessments from DSS, the linked DSS Appendix A form for each, and their own EHS scoring form to fill and submit. HSE staff never access SAMA directly. All three surfaces share one backend and one database.
 
 ### Single SSO — one identity, routed to the right surface
 
@@ -327,6 +337,28 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
 - **PostEventReport** (optional): id, activity_id, outcomes_summary, attendance_highlights, issues, lessons_learned, suggestions, created_by, created_at, updated_at.
 - **ActivityClosure**: id, activity_id, closed_by, closed_at, reopened_at (nullable), reopened_by, reopen_reason. Append-only audit-style record of close/reopen events (one row per close cycle).
 
+### 4.17 Off-campus trips & risk compliance
+
+Additional fields on **Activity** when `is_off_campus = true`:
+- `is_off_campus` (bool, default false)
+- `trip_classification` ENUM(`domestic_day`, `domestic_overnight`, `international`) — nullable when `is_off_campus = false`
+- `lead_supervisor_id` — FK to User (staff); defaults to `owner_coordinator_id` on toggle-on; reassignable
+- `nearest_hospital` (text) — documented before submission
+- `risk_trigger_international` (bool, auto-set from `trip_classification`)
+- `risk_trigger_overnight` (bool, auto-set from `trip_classification`)
+- `risk_trigger_large_group` (bool, auto-evaluated: true when `capacity >= 50`)
+- `risk_trigger_non_standard` (bool, Coordinator confirms manually)
+- `hse_required` (bool, computed: true when any trigger is true)
+- `hse_sign_off_status` ENUM(`not_required`, `pending`, `submitted`, `acknowledged`) — drives the Manager approval gate
+
+**RiskAssessment** (Appendix A): id, activity_id, completed_by (lead_supervisor_id), hazard_rows (JSON — 7 rows, each: applicable bool, confirmed bool, notes text), contingency_confirmations (JSON — 4 booleans), declaration_signed_at, manager_countersigned_at, version, created_at, updated_at. Printable as formatted PDF.
+
+**EHSAssessment** (HSE's form — Appendix B equivalent for HSE): id, activity_id, risk_assessment_id (FK to RiskAssessment), completed_by_hse_user_id, activity_steps (JSON array — each: step_name, hazard, risk, persons_at_risk, existing_controls, initial_severity, initial_probability, initial_risk_score, additional_controls, residual_severity, residual_probability, residual_risk_score), overall_residual_level ENUM(`low`, `moderate`, `high`, `catastrophic`), submitted_at, acknowledged_by (Manager user_id), acknowledged_at, manager_override_reason (text, required when overall_residual_level is `high` or `catastrophic`).
+
+**TripConsentForm** (per registration, Appendix B): id, registration_id, activity_id, student_id, emergency_contact_name, emergency_contact_relationship, emergency_contact_phone, medical_declaration_has_conditions (bool), medical_declaration_details (text, nullable), insurance_document_url (nullable — required for international trips), liability_waiver_agreed (bool), code_of_conduct_agreed (bool), submitted_at. Medical declaration details are also written to the student's HealthProfile record (Health module) on submission.
+
+**ChecklistItem**: id, activity_id, source ENUM(`system`, `custom`), description, assignee_user_id (nullable), due_date (nullable), is_complete (bool), completed_by (nullable), completed_at (nullable), created_at. System-generated items are created automatically based on activity configuration; custom items are coordinator-created.
+
 ### 4.16 User provisioning & SIS integration
 
 #### Student provisioning
@@ -440,6 +472,16 @@ Draft → Submitted → Approved → Published → RegistrationOpen → Registra
 - **Self check-in toggle** (`self_checkin_enabled`, default false). When true, students can check themselves into a session by scanning a session-specific QR code (rotates each session, displayed by Employee on screen at the venue). Geofence-optional and time-window-enforced (only valid from session `start_at − 15min` to session `end_at`). Useful for large lectures (200+) where Employee scanning is a bottleneck. Default off — Employee scan is the safer default.
 - **Public catalog toggle** (`is_public`, default false). When true, the activity appears in a public (no-login) catalog view that shows: title, brief description, dates, current capacity status (Open / Waitlist / Full). It does **not** show: enrolled student names, photos, eligibility internals, application questions, welfare-adjacent details. Login is still required to register, view full details, or interact. Default off — opt-in per activity, because some activities (welfare-adjacent, scholarship trips, internal-only) should not be public.
 - **Guest registration toggle** (`allow_guest_registration`, default false). See §7.1.6 for the guest registration flow. When on, non-students (faculty speakers' attendees, parents at family events, external invitees) can register without a SAMA login. Coordinator decides per activity. Independent of `is_public` — an activity can be private to logged-in students AND allow guest registration via a direct link, or be publicly listed AND restricted to students only.
+- **Off-campus toggle** (`is_off_campus`, default false). When switched on, the activity is classified as taking place outside university premises and the full trip compliance layer is activated. See §6.8 for the complete off-campus flow. When `is_off_campus = true`, the following additional fields appear:
+  - **Trip classification**: `Domestic – Day` / `Domestic – Overnight` / `International`
+  - **Risk profile (4 yes/no questions)** — answers auto-evaluated from activity fields where possible:
+    1. International trip? (auto-set from trip classification)
+    2. Overnight trip? (auto-set from trip classification)
+    3. 50 or more participants? (auto-evaluated from capacity)
+    4. Non-standard activity? (Coordinator confirms manually — e.g. hiking, water activity, adventure/sports, camping)
+  - Any "Yes" answer triggers HSE involvement (see §6.8.2).
+  - **Lead Supervisor**: defaults to the activity's owner Coordinator; reassignable to any active DSS staff member.
+  - **Nearest hospital / clinic**: free-text field, documented before submission.
 
 ### 6.2 Approval flow
 
@@ -531,6 +573,151 @@ Every activity detail view contains a **Comms** tab with two distinct sections.
 - **BR-CM2**: Briefing notes are not versioned in V1 — last save overwrites. Each edit is recorded in the audit log.
 - **BR-CM3**: Coordinators cannot send announcements to waitlisted students — confirmed (Registered) students only.
 
+### 6.8 Off-campus trips & risk compliance
+
+This section governs the full compliance workflow for any activity with `is_off_campus = true`. The workflow is underpinned by the university's Off-Campus Activities & Trips Policy (DSS / HSE, 2025).
+
+#### 6.8.1 DSS Risk Assessment — Appendix A (structured in-SAMA form)
+
+A DSS Risk Assessment must be completed for every off-campus activity, regardless of risk level. It is a structured form inside SAMA — not a file upload.
+
+**Form structure:**
+- **Trip details** (pre-filled from activity): activity name, date(s), trip classification, lead supervisor, total participant count, nearest hospital/clinic.
+- **HSE trigger evaluation** (auto-evaluated, shown as read-only confirmation): whether each of the 4 triggers is met.
+- **Hazard assessment** — 7 rows, each with: applicable toggle, standard mitigation text (shown inline, read-only), confirmed checkbox, additional notes field:
+  1. Transportation — vehicle breakdown, road accident
+  2. Medical / Health — injury, heat stroke, sudden illness
+  3. Weather / Environment — extreme heat, rain, rough terrain
+  4. Venue-specific — risks tied to the nature of the venue
+  5. Sports injury — sprains, fractures, physical contact injuries
+  6. Security — theft, civil unrest, unsafe area (international trips)
+  7. Drowning / Water safety — trips near water, beach, yacht, coastal
+- **Contingency & emergency preparedness** — 4 confirmation checkboxes:
+  - Emergency contact numbers saved by all supervisors
+  - Nearest hospital/clinic identified and documented
+  - Students briefed on risks and itinerary
+  - Emergency evacuation transport arranged
+- **Declaration** — Lead Supervisor confirms accuracy; DSS Manager countersigns.
+
+**Pre-fill logic**: activity name, date, trip classification, lead supervisor, participant count, and nearest hospital are pre-filled from the activity record. The 4 HSE trigger answers are auto-evaluated. The coordinator only inputs hazard-level notes and confirmations.
+
+**Printable**: the completed form can be exported as a formatted PDF for physical records or archiving.
+
+**Timing**: the Appendix A form must be completed before the activity can be submitted for Manager approval.
+
+#### 6.8.2 HSE sign-off (conditional)
+
+HSE sign-off is required when any of the 4 risk profile questions is "Yes" (international, overnight, 50+ participants, non-standard activity).
+
+**Flow when HSE is triggered:**
+
+```
+Coordinator completes Appendix A in SAMA
+      ↓
+SAMA automatically notifies HSE Portal queue
+      ↓
+HSE Officer logs into HSE Portal (SSO), views the pending request
+HSE Officer sees: activity details + DSS Appendix A (read-only)
+HSE Officer fills their own EHS Risk Assessment form in HSE Portal:
+  — Activity steps (each step: hazard, risk, persons at risk)
+  — Existing control measures
+  — Initial risk rating: Severity (1–5) × Probability (1–5) = Risk score
+     → Low (1–3) / Moderate (4–6) / High (8–12) / Catastrophic (15–25)
+  — Additional control measures
+  — Residual risk rating (re-scored after controls)
+      ↓
+HSE submits their EHS form
+      ↓
+SAMA links HSE's EHS form to the activity (visible in Risk tab + Documents)
+DSS Manager receives notification: "HSE assessment submitted for [activity]"
+      ↓
+Manager reviews both forms (Appendix A + EHS form) in SAMA
+Manager formally approves or requests changes
+  — If HSE residual risk is High or Catastrophic:
+    SAMA shows a prominent warning; Manager must enter a written reason to proceed
+      ↓
+Manager approval clears the trip to proceed
+```
+
+**When HSE is NOT triggered** (all 4 risk questions are "No"): Appendix A is completed by the Coordinator and reviewed/countersigned by the DSS Manager only. No HSE involvement.
+
+**HSE Portal — what HSE sees:**
+- Queue of pending risk assessments awaiting their input
+- History of all past assessments they have completed (for reference)
+- For each assessment: activity name, date, location, participant count, trip classification, DSS Appendix A (read-only)
+- Their EHS form to fill and submit
+- HSE staff have identical access in v1; no role tiers within HSE Portal
+
+#### 6.8.3 Supervision ratio
+
+The minimum required supervision ratio is enforced as a soft warning:
+- **Domestic trips**: 1 supervisor per 25 students
+- **International trips**: 1 supervisor per 15 students
+
+SAMA calculates the required minimum supervisors based on trip classification and current registered participant count. If the assigned supervisor count falls below the required ratio, a persistent warning banner is shown on the activity. The activity is not blocked — the Manager can approve with full awareness. The ratio is recalculated in real time as registrations change.
+
+**Lead Supervisor**: the activity's owner Coordinator is the default Lead Supervisor. The Coordinator may reassign the Lead Supervisor role to any active DSS staff member from the activity detail view.
+
+#### 6.8.4 Club-organized off-campus trips
+
+When a club-organized activity has `is_off_campus = true`, the Appendix A form and HSE sign-off (if triggered) are prerequisites before the activity reaches the Manager for final approval. The sequence is:
+
+```
+Club Leader submits via Student Portal
+      ↓
+Club Coordinator reviews & completes Appendix A in SAMA
+      ↓  (if HSE triggered)
+HSE fills EHS form in HSE Portal → SAMA links both forms
+      ↓
+Club Coordinator approves (step 1)
+      ↓
+Manager reviews: activity details + budget + Appendix A + EHS form (if applicable)
+Manager gives final approval
+```
+
+The Club Coordinator is responsible for completing the Appendix A form on behalf of the Lead Supervisor for club trips. The Lead Supervisor role is assigned from the activity detail view.
+
+---
+
+### 6.9 Activity Checklist tab
+
+Every activity has a **Checklist** tab — not limited to off-campus trips. The checklist is a flexible task-tracking layer that combines system-suggested items with coordinator-defined custom items.
+
+#### System-suggested items
+
+SAMA auto-generates checklist items based on the activity's configuration. These appear automatically and require Coordinator confirmation — SAMA can detect whether conditions are met in the system, but physical or external confirmations require a human tick.
+
+| Trigger | Suggested item |
+|---|---|
+| All activities | "Venue confirmed and booked" |
+| All activities | "Announcement sent to registered students" |
+| `is_off_campus = true` | "DSS Risk Assessment (Appendix A) completed" |
+| `is_off_campus = true` | "First aid kit confirmed present" |
+| `is_off_campus = true` | "Students briefed on itinerary and safety instructions" |
+| HSE triggered | "HSE EHS form submitted and acknowledged" |
+| International trip | "Health insurance verified for all participants" |
+| `fee > 0` | "Registration fee collection confirmed with Finance" |
+| `requires_approval = true` | "All pending applications reviewed" |
+| Paid + detailed budget | "Budget approved by Manager" |
+
+System-suggested items are shown 24 hours before `start_at` for physical/day-of items (first aid kit, student briefing); all other items are shown from the moment they become relevant.
+
+#### Custom items
+
+Coordinators can add any number of custom checklist items. Each item has:
+- **Description** — free text (e.g. "Call the Dean's office", "Order catering from supplier X")
+- **Assignee** — optional; any active DSS staff member
+- **Due date** — optional
+- **Status** — open / complete (manually ticked)
+
+Custom items are modelled after the existing Tasks pattern (§14 follow-up tasks) but scoped to a single activity rather than the department-wide task list.
+
+#### Visibility and completion tracking
+
+- Overall checklist completion % is shown in the activity header (e.g. "Checklist: 7/10 complete")
+- Manager can see checklist completion status across all activities from the dashboard
+- Checklist is not a hard gate — activities are not blocked by incomplete items, but outstanding items are surfaced as warnings
+
 ---
 
 ## 7. Module — Registration & waitlist
@@ -539,11 +726,32 @@ Every activity detail view contains a **Comms** tab with two distinct sections.
 - Student opens an activity → sees details, seats remaining, schedule, eligibility match, prerequisites status.
 - Student clicks **Register**:
   - System validates: registration window open, eligibility match, prerequisites met, no schedule conflict (see §7.5), capacity not full (or waitlist enabled).
+  - If activity has `is_off_campus = true` → consent form gate activates before registration is confirmed (see §7.1.7).
   - If activity has `requires_approval = true` → registration enters **Pending** (see §7.1.5).
   - Else if seats available → **Registered**.
   - Else if capacity full and waitlist enabled → **Waitlisted** with position.
   - If invalid → reason shown.
 - Confirmation: in-app + email + push notification with calendar (.ics) attachment for Email.
+
+### 7.1.7 Off-campus consent form gate (Appendix B)
+
+For any activity with `is_off_campus = true`, students must complete a Consent & Medical Declaration form before their registration is confirmed. This is a required step in the Student Portal registration flow — the student cannot proceed to confirmed status without submitting it.
+
+**Form fields (Appendix B — Student Acknowledgment & Consent Form):**
+
+- **Trip details** (pre-filled, read-only): activity name, date(s), lead supervisor name
+- **Student details** (pre-filled from profile, read-only): full name, student ID, program/year, contact number
+- **Emergency contact**: name, relationship, contact number (student fills; stored on registration)
+- **Medical declaration**: "Do you have any pre-existing medical conditions, allergies, or physical limitations relevant to this trip?" — Yes/No. If Yes, free-text details field. Disclosure is explicitly saved to the student's health profile in the Health module (consent language makes this clear on the form).
+- **Insurance document upload** (international trips only, `trip_classification = International`): student uploads proof of valid health insurance coverage (PDF/image). Required field for international trips.
+- **Liability waiver acknowledgment**: checkbox — student confirms voluntary participation and releases the university from liability except in cases of gross negligence.
+- **Code of conduct acknowledgment**: checkbox — student agrees to comply with the university Code of Conduct and supervisor instructions.
+
+**On submission**: registration enters Registered (or Pending if `requires_approval = true`). The consent record is stored against the registration. Consent status is visible per student in the Registrations tab in SAMA — Coordinators see a column: `Consent: ✓ / Pending`.
+
+**Medical declaration → Health module**: when the student submits a medical declaration with details, the disclosed information is appended to their health profile record in the Health module. The form clearly states: *"Any health information you disclose here will be saved to your university health record and may be viewed by health staff."* The student must acknowledge this before submitting.
+
+**SAMA view**: the Registrations tab for off-campus activities shows a `Consent` status column. Coordinator can filter by students who have not yet submitted their consent form and send a reminder via the Comms tab.
 
 ### 7.1.5 Registration approval (`requires_approval` activities)
 
@@ -1269,6 +1477,38 @@ This module defines what happens after `end_at` passes: closure, surveys, certif
 - **Not required** for closure. Not required for certificate issuance.
 - Manager can request one after the fact (manual nudge; no system-blocking).
 
+### 14.8 Post-trip evaluation report (off-campus activities only)
+
+For activities with `is_off_campus = true` that have moved to `Completed` status, the **Feedback tab** gains two additional sections above the standard student survey. These sections are filled by the Lead Supervisor.
+
+#### Part 1 — Incident log
+
+A structured table for recording any safety, health, or behavioral incidents that occurred during the trip. Each row:
+- Incident description (free text)
+- Student(s) involved (name/ID)
+- Action taken (free text)
+
+If there were no incidents, the Lead Supervisor ticks "No incidents to report" — explicitly required (cannot be left blank).
+
+#### Part 2 — Logistics assessment
+
+Free-text assessment per area, mirroring the policy's post-trip structure:
+- Transportation
+- Accommodation (if applicable — overnight/international trips)
+- Venue / Activity provider
+- Overall organization
+- Other notes
+
+#### Relationship to the standard student feedback survey
+
+The student feedback survey (Part 3, §14.4) remains below Parts 1 and 2 and is unchanged. For off-campus activities, the survey auto-includes trip-specific questions in addition to the standard set:
+- "Did you feel safe throughout the trip?" (Yes / No + optional explanation)
+- "How would you rate the organization and logistics?" (1–5 stars)
+
+The post-trip report (Parts 1 + 2) is filled by staff. The student survey (Part 3) is filled by students — these are independent of each other.
+
+**Not a closure gate**: the post-trip report is strongly encouraged but does not block closure or certificate issuance. Manager is notified if the report has not been submitted 48 hours after the activity is closed.
+
 ### 14.8 Notifications triggered by post-event flow
 
 | Event | Recipients | Channels |
@@ -1806,6 +2046,21 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-SET7**: SIS manual sync can be triggered by Manager at any time from the People & Roles tab. Sync runs asynchronously; Manager receives an in-app notification on completion.
 - **BR-SET8**: Audit log export to CSV includes all fields: timestamp, actor ID, actor name, role, action type, target entity type, target entity ID, IP address, user agent. Sensitive welfare data reads are included in the export (Manager is authorised for this per §11.3).
 
+### Off-campus trips & risk compliance
+
+- **BR-TR1**: Every activity with `is_off_campus = true` requires a completed DSS Risk Assessment (Appendix A) before it can be submitted for Manager approval. This applies to both standard and club-organized activities.
+- **BR-TR2**: HSE sign-off is triggered when any of the 4 risk profile conditions is true: (1) international trip, (2) overnight trip, (3) 50 or more participants, (4) non-standard activity type confirmed by Coordinator. When triggered, `hse_required = true` and `hse_sign_off_status` must reach `acknowledged` before the activity proceeds to Manager final approval.
+- **BR-TR3**: HSE staff access the HSE Portal via the same university SSO. HSE Portal shows only activities where `hse_required = true` and `hse_sign_off_status = pending`. HSE staff have identical access in v1 (no role tiers within HSE Portal).
+- **BR-TR4**: When HSE submits their EHS form, `hse_sign_off_status` transitions to `submitted`. The Manager is notified. The Manager must review both forms (Appendix A + EHS form) and explicitly acknowledge to clear the trip. Acknowledgment sets `hse_sign_off_status = acknowledged`.
+- **BR-TR5**: If the EHS form's `overall_residual_level` is `high` or `catastrophic`, the Manager's acknowledgment screen shows a prominent warning. The Manager must enter a written override reason (`manager_override_reason`) before they can proceed. The reason is stored on the EHSAssessment record and logged in the audit trail.
+- **BR-TR6**: For off-campus activities, every student must complete the Consent & Medical Declaration form (Appendix B) before their registration is confirmed. Registration is not confirmed without consent form submission. This gate applies regardless of whether `requires_approval` is true.
+- **BR-TR7**: Medical declaration details submitted via the consent form are written to the student's HealthProfile record in the Health module. The consent form explicitly informs the student that their disclosure will be saved to their health record. This disclosure is a required acknowledgment before form submission.
+- **BR-TR8**: For international trips (`trip_classification = international`), the consent form requires an insurance document upload. Registration cannot be confirmed without it.
+- **BR-TR9**: The supervision ratio is a soft warning only — no hard block. Required minimums: 1 supervisor per 25 students (domestic), 1 supervisor per 15 students (international). SAMA re-evaluates in real time as registrations change. Coordinator defaults to Lead Supervisor; reassignable to any active DSS staff member.
+- **BR-TR10**: For club-organized off-campus activities, the Club Coordinator must complete Appendix A and HSE sign-off (if triggered) before they can approve Step 1 of the club approval chain. The Manager receives the full compliance picture (activity details + budget + Appendix A + EHS form if applicable) at final approval.
+- **BR-TR11**: The post-trip evaluation report (incident log + logistics assessment) appears in the Feedback tab for off-campus activities when status is `Completed`. It is not a closure gate. Manager is notified if the report has not been submitted 48 hours after the activity is closed.
+- **BR-TR12**: Checklist items are activity-scoped. System-suggested items are auto-generated based on activity configuration. Custom items can be added by any Coordinator assigned to the activity. Neither system nor custom items are hard gates on activity progression.
+
 ### Cross-cutting: edits, lifecycle, language, notifications, welfare matrix
 - **BR-CC1 (Optimistic locking)**: every editable entity has a `version` field. Save is rejected if version differs; UI shows field-by-field conflict diff and offers reload-and-reapply. No silent overwrites.
 - **BR-CC2 (Account lifecycle)**: account activation/deactivation lives in the IdP, not SAMA. SAMA records persist after a user becomes inactive; Manager is nagged when an inactive user owns active activities; no auto-cancel of student registrations on departure.
@@ -2185,6 +2440,7 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
 | 87 | Round 31 — Student Portal business rules (BR-SP6–SP26) added to §13.6 and §17. Key decisions: (a) Only Active-status activities visible in Explore tab; (b) Registration deadline is configurable per activity (no deadline = open until start); (c) No eligibility restrictions in V1 (deferred to V2); (d) Fee payment out of scope for V1 Student Portal; (e) Cancellation deadline is configurable per activity (new, overrides the Student Portal framing of existing §6.1 policy); (f) Waitlist confirmation window introduced as configurable per activity — this supersedes the prior auto-confirm rule in §7.3/BR-WL1, which is now scoped to the SAMA-default behavior; activity creator may choose to enable a confirmation window instead; (g) Volunteer hours goal is university-wide in system settings, not per student; (h) Self-reported external activity enters Pending verification before counting; (i) Certificate issuance mode is per-activity: Manual (coordinator issues explicitly) or Automatic (threshold-based) — activity creator chooses at setup; (j) Certificates have unique public verification URL, no login required; (k) Certificates do not expire; (l) Transcript is on-demand PDF, no registrar routing in V1; (m) No max club member count in V1; (n) Club leader blocked from leaving if sole remaining leader; (o) Membership applications auto-decline after 14 days; (p) Club announcements in-app only, active members only; (q) Minimum activity request fields defined; (r) Student participation records private by default; (s) 8 notification triggers defined for Student Portal. **Conflict resolved (post-round):** BR-SP11 (item f above) conflicted with BR-WL1 and §7.3, which stated promotion was always auto-confirm. Resolution: configurable confirmation window wins; auto-confirm is the default when no window is set by the coordinator, not the only mode. BR-WL1, §7.3, and BR-SP11 have all been updated to reflect this. | round 31 |
 | 89 | Round 33 — Settings module specified (§15a). Key decisions: (a) Settings page is structured as an 8-tab bar (General, People & Roles, Modules, Notifications, Academic Calendar, Certificates, Integrations, Audit Log), using the same tab-bar visual pattern as activity detail views; (b) Access model: Manager has full access to all tabs; Coordinators can be granted access to specific tabs by the Manager (per-tab delegation, not per-field); Students and Club Officers have no Settings access; (c) Three tabs are non-delegatable and Manager-only: People & Roles, Certificates, and Audit Log; (d) Module toggling is IT-only at deployment; Manager configures settings within enabled modules but cannot enable or disable modules from the UI; (e) Tab coverage — General: branding (university name, logo), timezone (default Asia/Dubai), currency (default AED, set once at deployment), locale (English V1), support contact email; People & Roles: staff accounts (add/deactivate/view last login), role assignment UI, delegated settings access, student roster (read-only), SIS sync status + manual trigger, profile photo moderation queue; Modules: enabled module list (read-only toggle, IT-managed), per-module configurable settings; Notifications: email sender identity, notification templates (override subject/body per type), quiet hours, delivery channel defaults, link to undelivered report; Academic Calendar: semesters (CRUD), holidays and breaks, volunteer hours semester target (system-wide, updated per semester), certificate academic year label; Certificates: certificate template (layout, signatory, preview), numbering format, certificate types, system-wide defaults for survey gating and issuance mode; Integrations: status views for SIS/Finance/SSO/Email/Push providers — all credential and endpoint config is IT-only, Manager can trigger manual SIS sync; Audit Log: full searchable/filterable viewer, CSV export, append-only. Business rules BR-SET1–BR-SET8 added to §17. Settings row added to §3.2 permission matrix. | round 33 |
+| 90 | Round 34 — Off-campus trips & risk compliance integrated from the university Trips Policy (DSS/HSE, 2025). Key decisions: (1) Off-campus represented as `is_off_campus` toggle on any activity type — not a new type; (2) Trip classification: Domestic Day / Domestic Overnight / International; hazard sub-types deferred to v2 — replaced by 4 yes/no risk trigger questions (international, overnight, 50+ participants, non-standard activity); (3) HSE interaction: separate lightweight HSE Portal (SSO login, same backend), HSE fills their own EHS scoring form in-portal, Manager gives formal approval — hard gate; High/Catastrophic residual risk requires Manager written override reason; (4) DSS Risk Assessment (Appendix A): fully structured in-SAMA form, pre-filled where possible, printable as PDF; (5) Student consent form (Appendix B): gate on registration in Student Portal, pre-filled from profile, includes medical declaration, liability waiver, emergency contacts, insurance upload for international trips; (6) Medical declaration flows into Health module HealthProfile record — student explicitly informed on form; (7) Supervision ratio: soft warning only, 1:25 domestic / 1:15 international, real time, Coordinator is default Lead Supervisor; (8) Activity Checklist tab on every activity: system-suggested items (auto-generated per configuration, Coordinator confirms) + custom items (free text, optional assignee + due date); physical items manually confirmed; not a hard gate; (9) Post-trip report extends Feedback tab for off-campus Completed activities: incident log + logistics assessment above student survey; not a closure gate; (10) Club off-campus trips: Appendix A + HSE sign-off required before Club Coordinator can complete Step 1 approval — Manager sees full compliance picture at final approval; (11) International health insurance: Coordinator confirms via checklist item; students upload proof in consent form; (12) Trips reporting: out of scope for v1. New platform surface: HSE Portal added to §2.5. New §6.8 (Off-campus trips & risk compliance), §6.9 (Checklist tab), §7.1.7 (Consent form gate), §4.17 (data model), §14.8 (post-trip report). Business rules BR-TR1–BR-TR12 added. | round 34 |
 | 88 | Round 32 — Four sets of decisions confirmed and documented: (1) **Comms tab** (§6.7): the activity detail view Comms tab is formally specified with two sections — Announcements (external, one-way broadcast to confirmed registrants via in-app + email, with history log showing timestamp/sender/delivery count) and Briefing notes (internal, staff-only, free text, no attachments in V1). Business rules BR-CM1–CM3 added: announcements only when Active or Pending Approval; briefing notes not versioned in V1 (last save overwrites, audit-logged); announcements to confirmed registrants only (not waitlisted). (2) **Student onboarding and SIS integration** (§4.16): primary method is SIS batch import (nightly by default); fallback is Manual CSV upload by Manager or IT. Students pre-exist in SAMA before first login. First SSO login matches by email/student ID; unmatched creates a new record. Single source of truth shared by SAMA and Student Portal. Enrollment status sync: SIS inactive/withdrawn flags the student in SAMA and notifies Coordinators; SSO access continues until IdP disables. Staff provisioning: Manager-created via Settings, or IT-seeded for bootstrap. First Manager account seeded by IT with no dependency on role-assignment workflow. Business rules BR-ON1–ON4 confirmed. (3) **Survey gating and certificate issuance independence** (§9.2, §13.6, §14.3): confirmed as two independent per-activity settings. Issuance mode (Manual or Auto) and survey gating (On or Off) are orthogonal; any combination is valid. Four-combination matrix documented in §9.2. BR-SP14, BR-SV1, BR-SV2 added to §13.6/§17: survey gating On + 30-day auto-unlock triggers an in-app notification to the student. (4) **Welfare V1 scope and module extensibility**: V1 Welfare module covers Health and Counseling only. Housing and all other welfare service types are deferred to V2. §11.0 permission matrix updated to remove Housing and Other columns/rows. Note added directing future modules to the extensibility pattern. New §2.6 (Module extensibility) documents the registration pattern for future modules: own nav entry, own role assignment type, own permission matrix row, own data model section, own BR block. V1 module inventory listed. Planned future modules documented for architectural awareness (Housing, Alumni, Internships, Financial Aid). BR-EXT1 (modules independently gated) and BR-EXT2 (future modules follow registration pattern) added. | round 32 |
 
 ---
