@@ -97,6 +97,7 @@ Same for **terminology**: PRD §3 (BR-CL19) renames "Club Leader" → "Club Pres
 | **`cert_hours` field with auto-calc default** (§9.1.1) | 🔴 | Missing. **[P3]** |
 | **Sponsoring club selector** | 🔴 | Missing. **[P2]** |
 | **Static reminder banner** for club submissions (BR-CL27 — "3 weeks if budgeted, 2 weeks otherwise; receipts within 5 working days") | 🔴 | Missing. **[P3]** |
+| **OBEF Community Engagement flag** — KPI 6.1 / 6.2 selector + sub-type picker + thresholds hint (§6.1, BR-OBEF1) | 🔴 | Missing. Shown only when `obef_kpi` is set; sub-type drives the attendance threshold used at closure evaluation. **[P2]** |
 | Live preview pane + flow steps + auto-checks card | ✅ | Great touch; just makes auto-checks decorative. |
 
 ### 1.4 Activity Detail (`detail.jsx`)
@@ -132,6 +133,7 @@ Same for **terminology**: PRD §3 (BR-CL19) renames "Club Leader" → "Club Pres
 | **Post-event report** (incident log + logistics) (§14.7) | 🔴 | Missing. **[P2]** |
 | **Follow-up tasks** (§4.14, BR-PE7) | 🔴 | Missing. **[P3]** |
 | **Media gallery** (§14.4) | 🔴 | Missing. **[P3]** |
+| **OBEF qualifying status** indicator on closed activities — duration ✓/✗, attendance ✓/✗, overall `obef_qualifies` result (§14.1, BR-OBEF2) | 🔴 | Auto-evaluated at Closed state; should surface on Overview tab. **[P2]** |
 
 #### Top-bar actions
 
@@ -272,6 +274,7 @@ Same for **terminology**: PRD §3 (BR-CL19) renames "Club Leader" → "Club Pres
 | **Survey results aggregate + comments** drill-in per activity | 🟡 | Only on activity Detail's Feedback tab. **[P3]** |
 | **Anonymous response CSV export** | 🔴 | Missing. **[P3]** |
 | **Semester comparison** report | 🔴 | Missing. **[P3]** |
+| **OBEF Community Engagement report** (§14.9) — filterable by academic year / KPI (6.1/6.2) / sub-type / qualifying status; summary strip (total events, qualifying count, total attendance); CSV export | 🔴 | Missing. **[P2]** |
 
 ### 1.12 Notifications (`notifications.jsx`)
 
@@ -462,6 +465,7 @@ Same for **terminology**: PRD §3 (BR-CL19) renames "Club Leader" → "Club Pres
 The seed data in `data.jsx` doesn't yet model:
 
 - `is_off_campus`, `trip_classification`, HSE triggers, Lead Supervisor — on Activity.
+- `obef_kpi`, `obef_subtype`, `obef_qualifies` (all nullable) — on Activity.
 - `coordinator_approval_phase` on Activity (for two-step club approval).
 - `is_union`, category-as-policy-enum, `advisor_email`, `acknowledgment_signed_at` — on Club.
 - `ClubReactivationNomination` table seed.
@@ -490,7 +494,7 @@ Goal: get the state machine matching the PRD, then layer the missing Hub & Detai
 4. **Ready-to-complete** + **Pending closure** widgets on Home and Hub.
 5. **Wire `BudgetTab` into Detail** as a tab.
 6. **Approvals** rebuild for two-step club approval: Phase 1 / Phase 2 in inbox, Manager override, rejection-with-reason captured in UI, tag by sponsoring club.
-7. **Create flow** additions: eligibility editor, cancellation policy chooser, registration window, application form builder, reapply policy, `requires_approval` toggle.
+7. **Create flow** additions: eligibility editor, cancellation policy chooser, registration window, application form builder, reapply policy, `requires_approval` toggle, **OBEF Community Engagement flag** (KPI 6.1/6.2 selector + sub-type).
 8. **Application queue** for `requires_approval` activities in Detail.
 9. **Comms** rebuild: announcements composer + history + delivery counts; separate Briefing Notes.
 
@@ -544,6 +548,7 @@ Goal: get the state machine matching the PRD, then layer the missing Hub & Detai
 6. **Survey question library** management.
 7. **Manager Notifications** templates.
 8. **Integrations** status (read-only).
+9. **OBEF Community Engagement report** (§14.9) — academic-year filter, KPI / sub-type / qualifying-status filters, summary strip, CSV export.
 
 ### Wave 7 — Misc polish (P3)
 1. Optimistic-lock conflict modal.
