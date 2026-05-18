@@ -104,7 +104,7 @@ This is a known edge case that must be explicitly handled in the authentication 
 
 ### Shared backend
 
-Both surfaces call the same API and operate on the same data. An activity submitted by a Club Leader via the Student Portal immediately surfaces as a Draft in SAMA for the Club Coordinator. Status updates written in SAMA (approval decisions, etc.) are immediately visible to the student in the Student Portal. There is no sync lag or data duplication.
+Both surfaces call the same API and operate on the same data. An activity submitted by a Club President via the Student Portal immediately surfaces as a Draft in SAMA for the Club Coordinator. Status updates written in SAMA (approval decisions, etc.) are immediately visible to the student in the Student Portal. There is no sync lag or data duplication.
 
 ---
 
@@ -195,7 +195,7 @@ Columns show the **minimum role** required. Manager inherits all. Club Coordinat
 | Assign Club Coordinator to club | ✓ | – | – | – | – | – | – |
 | Assign Club Advisor to club | ✓ | – | – | – | – | – | – |
 | Manage club roster / committees | ✓ | ✓ (assigned) | ✓ (assigned clubs) | – | – | limited (own club) | view own membership |
-| Grant Club Leader status | ✓ | ✓ (assigned) | ✓ (assigned clubs) | – | – | – | – |
+| Grant Club President status | ✓ | ✓ (assigned) | ✓ (assigned clubs) | – | – | – | – |
 | View club page & activity list | ✓ | ✓ (assigned) | ✓ (assigned) | ✓ (assigned, read) | – | ✓ (own club) | ✓ (public) |
 | **— Budget —** | | | | | | | |
 | Create / edit budget suggestion (Draft state) | ✓ | ✓ (own activity) | ✓ (assigned club) | – | – | ✓ (own club drafts) | – |
@@ -276,7 +276,7 @@ Tech-agnostic entities. Field lists are illustrative, not exhaustive.
   - `WelfareAssignment`: user_id, service_id, role {counselor, nurse, health_staff} — links an authenticated employee to a specific welfare service (Health clinic, Counseling centre, etc.). **Assigned by**: Manager. **Cardinality**: many:many (a service can have multiple assigned employees; an employee can be assigned to multiple services). **Permission granted**: manage-level access to the specific welfare module's records (counseling notes, health records, or visit logs) scoped to the assigned service. Note: "Manager-Welfare" is not a separate role — the Manager role inherently has oversight access to all welfare records across all services without a WelfareAssignment.
 
 ### 4.2 Activity & sessions
-- **Activity**: id, tenant_id, department_id, type {Event, Program, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for program), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), self_checkin_enabled (bool, default false), is_public (bool, default false), cert_hours (decimal, default = sum of session durations; manually editable), state (see §5), coordinator_approval_phase ENUM('pending', 'coordinator_approved') NULLABLE (non-null only when status='submitted' and trigger condition is met — i.e. the creator has the Club Leader role for the linked club; null for all standard/Coordinator-created activities), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete), version (optimistic locking).
+- **Activity**: id, tenant_id, department_id, type {Event, Program, Workshop, Campaign}, title, description, category/tags, location (physical or virtual + URL), start_at, end_at, capacity, waitlist_enabled (bool), registration_opens_at, registration_closes_at, cancellation_policy (see §6.1), eligibility_rules, prerequisites, requires_approval (bool, default false), fee (free/paid + amount, settled by external finance system — see §7.7), completion_threshold (e.g. 80% sessions for program), per_session_signup_enabled (bool), per_session_capacity_enabled (bool), self_checkin_enabled (bool, default false), is_public (bool, default false), cert_hours (decimal, default = sum of session durations; manually editable), state (see §5), coordinator_approval_phase ENUM('pending', 'coordinator_approved') NULLABLE (non-null only when status='submitted' and trigger condition is met — i.e. the creator has the Club President role for the linked club; null for all standard/Coordinator-created activities), creator_id, owner_coordinator_id, co_coordinators[], assigned_employees[], created_at, published_at, cancelled_at, cancellation_reason, language, attachments[], deleted_at (soft delete), version (optimistic locking).
 - **Session** (for multi-session programs/workshops): id, activity_id, sequence, start_at, end_at, location, employee_in_charge_id, capacity (nullable; per-session cap if `per_session_capacity_enabled`).
 - **SessionSignup** (only when `per_session_signup_enabled`): id, session_id, registration_id, signed_up_at. Indicates intent to attend; does not gate attendance.
 - **EligibilityRule**: e.g. allowed_programs[], allowed_years[], allowed_genders[], custom_filters[]. Combined with AND.
@@ -436,7 +436,7 @@ Draft → Submitted → Active/Published → Completed → Submitted for Closure
 ### 5.2 Transition rules
 
 - A **Draft** activity is fully editable.
-- A **Submitted** activity locks edits. Coordinator may withdraw → back to Draft. For club activities, Club Leader may withdraw during Phase 1 only (before Club Coordinator approves Step 1). After Step 1 is approved, only Coordinator or Manager can return to Draft.
+- A **Submitted** activity locks edits. Coordinator may withdraw → back to Draft. For club activities, Club President may withdraw during Phase 1 only (before Club Coordinator approves Step 1). After Step 1 is approved, only Coordinator or Manager can return to Draft.
 - An **Active/Published** activity is editable by Coordinator with these constraints:
   - Date/time, location, description, capacity (raise or lower) → free; system notifies registrants on date/time/location change.
   - Eligibility → free to widen or tighten; tightening does not affect existing registrants (grandfathered). New rules apply to new registrations only.
@@ -476,7 +476,7 @@ Draft → Submitted → Active/Published → Completed → Submitted for Closure
   - **Mode switching**: Coordinator can switch between simple and detailed mode at any point before submission. Switching simple → detailed is always allowed. Switching detailed → simple requires explicit confirmation (*"Switching to simple mode will discard all line items. This cannot be undone."*); the planned total from detailed mode carries over as the simple starting amount.
   - All activity types have a Budget tab; only activities in Active state (post-approval) through Completed allow transaction recording. Budget is fully locked (no transactions, no change requests) once the activity reaches Closed.
   - **Registration fee validation**: if a detailed budget has student-funded line items, the system compares the implied per-student cost against the registration fee set on the activity. If they do not match, a warning is shown: *"Budget shows AED 60/student but registration fee is set to AED 50 — update one to keep them aligned."* The fields remain independent; neither auto-updates the other.
-  - For Club-organised activities: the Club Leader enters the planned amount at creation as a budget suggestion (write access in Draft state only); the Club Coordinator may adjust it before submission; the Manager sets the approved amount at final approval. See §12.9 for the full budget flow.
+  - For Club-organised activities: the Club President enters the planned amount at creation as a budget suggestion (write access in Draft state only); the Club Coordinator may adjust it before submission; the Manager sets the approved amount at final approval. See §12.9 for the full budget flow.
 - Activity may carry **Prerequisites** (must have Completed activity X).
 - Activity may carry **Eligibility** (year, program, gender, custom). **Default is open to all enrolled students** (`eligibility_rules = null`). Coordinator optionally restricts at creation or post-publish. Eligibility rules are enforced at both catalog display and registration time — ineligible students do not see the activity in the catalog and cannot register. Post-publish tightening grandfathers existing registrants (see §6.4).
 - File **Attachments** (poster, agenda, consent forms, etc.).
@@ -518,16 +518,16 @@ Draft → Submitted → Active/Published → Completed → Submitted for Closure
 - Manager can: **Approve**, **Reject (with reason)**, or **Request changes (with comment)** which returns to Draft.
 - Manager-authored activities skip Submitted: Draft → Approved on save.
 - Approved activity becomes visible to its owner; Coordinator clicks **Publish** to expose it to students.
-- **Note**: activities not linked to a club, or club activities not created by a Club Leader, always follow this single-step flow: Coordinator reviews → Manager approves.
+- **Note**: activities not linked to a club, or club activities not created by a Club President, always follow this single-step flow: Coordinator reviews → Manager approves.
 
-#### 6.2.2 Club activity approval (Club Leader-created) — two-step
+#### 6.2.2 Club activity approval (Club President-created) — two-step
 Club-created activities go through an additional first step before reaching the Manager.
 
-- **Trigger condition**: the two-step flow is triggered when `created_by` has the Club Leader role for the linked club. A Coordinator who creates an activity on behalf of a club (i.e. the creator is not a Club Leader for that club) follows the standard one-step flow in §6.2.1.
-- **Submission surface**: Club Leaders submit activity requests from the **Student Portal** ("Workspace" tab) — they do not access SAMA. The submission creates a Draft record in the backend that immediately surfaces in SAMA for the assigned Club Coordinator(s) to pick up.
+- **Trigger condition**: the two-step flow is triggered when `created_by` has the Club President role for the linked club. A Coordinator who creates an activity on behalf of a club (i.e. the creator is not a Club President for that club) follows the standard one-step flow in §6.2.1.
+- **Submission surface**: Club Presidents submit activity requests from the **Student Portal** ("Workspace" tab) — they do not access SAMA. The submission creates a Draft record in the backend that immediately surfaces in SAMA for the assigned Club Coordinator(s) to pick up.
 
 ```
-Club Leader submits via Student Portal ("Workspace" tab)
+Club President submits via Student Portal ("Workspace" tab)
       ↓  (Draft created in backend → surfaces in SAMA as Submitted)
       ↓  (activity enters Submitted — Phase 1: awaiting Club Coordinator)
 All assigned Club Coordinators notified simultaneously (in SAMA)
@@ -537,19 +537,19 @@ Club Coordinator: Approve → Phase 2 | Reject → Draft | Request changes → D
 Manager: Approve (final) → Approved | Reject → Draft | Request changes → Draft
       ↓  (on Manager final approval)
 Club Advisors receive FYI notification
-Club Leader receives approval notification in Student Portal → can Publish
+Club President receives approval notification in Student Portal → can Publish
 ```
 
-- **Club Leader status visibility**: the Club Leader tracks the status of their submission entirely in the Student Portal "Workspace" tab. They see human-readable status updates (e.g. "Your request is in coordinator review", "Approved — awaiting publication", "Changes requested: [reason]"). They never open SAMA.
+- **Club President status visibility**: the Club President tracks the status of their submission entirely in the Student Portal "Workspace" tab. They see human-readable status updates (e.g. "Your request is in coordinator review", "Approved — awaiting publication", "Changes requested: [reason]"). They never open SAMA.
 
 - **Manager visibility**: Manager sees all Submitted activities from the moment of submission (Phase 1 included), tagged "Awaiting Club Coordinator" in their Approvals inbox. Manager can override and approve directly at any time, bypassing Phase 1.
 - **Approval inbox**: club requests appear in the same Approvals inbox used for standard activities. They are tagged with the club name so Coordinators and Managers can filter by club.
 - **No intermediate state in the state machine**: the Submitted state carries a `coordinator_approval_phase` marker (pending / coordinator_approved) to drive the two-step UI. The state enum itself does not change — the activity remains in Submitted through both phases.
-- **Notifications on Club Leader submission**: on submission by a Club Leader, notifications go to: (a) all Club Coordinators assigned to that club, and (b) the Club Advisor(s) assigned to that club (for awareness only — not an action item for Advisors).
+- **Notifications on Club President submission**: on submission by a Club President, notifications go to: (a) all Club Coordinators assigned to that club, and (b) the Club Advisor(s) assigned to that club (for awareness only — not an action item for Advisors).
 - **Notification on Coordinator step-1 approval**: after a Club Coordinator approves step 1, the Manager receives a notification: "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval."
-- **Rejection at step 1 (Coordinator)**: activity returns to Draft with the Coordinator's rejection note. The rejection reason is surfaced to the Club Leader in their Student Portal Workspace tab (same "Changes requested: [reason]" format shown in the status timeline). Club Leader can edit and resubmit.
-- **Rejection at step 2 (Manager)**: activity returns to Submitted with `coordinator_approval_phase = coordinator_approved` so the Club Leader can see the Manager's rejection reason without needing to redo the coordinator review step. The Club Leader must make an edit and resubmit — the Coordinator then re-approves (Step 1), and the Manager reviews again. The Club Leader cannot bypass Step 1 re-approval; the Coordinator cannot re-approve without a Club Leader resubmission.
-- **Club Leader withdrawal**: a Club Leader may withdraw their own submission from the Student Portal Workspace tab during Phase 1 only (while `coordinator_approval_phase = pending`). Withdrawal returns the activity to Draft with a reason. Once a Club Coordinator approves Step 1, withdrawal authority transfers to DSS staff only (Coordinator or Manager).
+- **Rejection at step 1 (Coordinator)**: activity returns to Draft with the Coordinator's rejection note. The rejection reason is surfaced to the Club President in their Student Portal Workspace tab (same "Changes requested: [reason]" format shown in the status timeline). Club President can edit and resubmit.
+- **Rejection at step 2 (Manager)**: activity returns to Submitted with `coordinator_approval_phase = coordinator_approved` so the Club President can see the Manager's rejection reason without needing to redo the coordinator review step. The Club President must make an edit and resubmit — the Coordinator then re-approves (Step 1), and the Manager reviews again. The Club President cannot bypass Step 1 re-approval; the Coordinator cannot re-approve without a Club President resubmission.
+- **Club President withdrawal**: a Club President may withdraw their own submission from the Student Portal Workspace tab during Phase 1 only (while `coordinator_approval_phase = pending`). Withdrawal returns the activity to Draft with a reason. Once a Club Coordinator approves Step 1, withdrawal authority transfers to DSS staff only (Coordinator or Manager).
 - **Club Advisor**: not in the approval chain. Receives a read-only FYI notification after Manager final approval.
 
 ### 6.3 Publishing & discovery
@@ -696,7 +696,7 @@ SAMA calculates the required minimum supervisors based on trip classification an
 When a club-organized activity has `is_off_campus = true`, the Appendix A form and HSE sign-off (if triggered) are prerequisites before the activity reaches the Manager for final approval. The sequence is:
 
 ```
-Club Leader submits via Student Portal
+Club President submits via Student Portal
       ↓
 Club Coordinator reviews & completes Appendix A in SAMA
       ↓  (if HSE triggered)
@@ -1107,12 +1107,12 @@ The UDSU is modeled as a club with `is_union = true`. It uses the same club data
 - Committee can be linked to specific activities the club sponsors.
 
 ### 10.4 Club activity requests — approval flow
-- A Club Leader creates an activity request on behalf of the club. The activity is associated with the club (sponsoring_club_id).
+- A Club President creates an activity request on behalf of the club. The activity is associated with the club (sponsoring_club_id).
 - On submission, all Club Coordinators assigned to that club are notified simultaneously.
 - **Any one Club Coordinator** can act: Approve (advances to Manager), Reject (returns to Draft with reason), or Request changes (returns to Draft with comment). First to act resolves — others' queue items clear automatically.
 - On Club Coordinator approval: activity enters Phase 2 (awaiting Manager). Manager is notified. The activity appears in the Manager's Approvals inbox tagged with the club name.
 - **Manager is the final approver** for all club activities, identical to standard activities. Manager can override Phase 1 and approve directly at any time.
-- On Manager final approval: Club Advisors receive a FYI notification. Club Leader is notified and can Publish the activity.
+- On Manager final approval: Club Advisors receive a FYI notification. Club President is notified and can Publish the activity.
 - Full two-step flow documented in §6.2.2.
 
 ### 10.5 Recurring meetings (clubs that meet weekly)
@@ -1124,14 +1124,14 @@ The UDSU is modeled as a club with `is_union = true`. It uses the same club data
 - A new term = a new Program. Clone-from-closed (§16 Scenario M) makes the next term's setup one-click.
 - **Why Program-per-term rather than ad-hoc weekly events**: one budget, one roster, one certificate, one dashboard entry — operationally lighter and matches academic-term reality. A proper open-ended recurrence model (no end date) is deferred to v2.
 
-### 10.6 Club Leader data visibility
-- Club Leaders can view their own club's detail page, activity list, and member roster.
-- Club Leaders cannot see other clubs' member lists or budgets.
-- Club Leaders can view the pipeline of their own club's activity requests (draft, submitted, approved, rejected).
+### 10.6 Club President data visibility
+- Club Presidents can view their own club's detail page, activity list, and member roster.
+- Club Presidents cannot see other clubs' member lists or budgets.
+- Club Presidents can view the pipeline of their own club's activity requests (draft, submitted, approved, rejected).
 
 ### 10.7 Club metadata editing
 - Club metadata (name, description, meeting schedule, contact email) can be edited by the assigned Club Coordinator or Manager.
-- A Club Leader can propose changes via a free-text change request submitted to the Club Coordinator. The Coordinator reviews the request and applies the changes if appropriate.
+- A Club President can propose changes via a free-text change request submitted to the Club Coordinator. The Coordinator reviews the request and applies the changes if appropriate.
 
 ### 10.8 Membership requests
 - Students can apply to join a club from the Student Portal.
@@ -1149,11 +1149,11 @@ When a Club Coordinator removes a **regular member** (non-board) from a club in 
 - Manager dashboard: number of active clubs, member counts, activity counts, Club Coordinator list, pending club requests.
 - Club Coordinator view: activity pipeline for assigned clubs, member roster, budget summary.
 
-### 10.10 Club Leader interface (Student Portal)
+### 10.10 Club President interface (Student Portal)
 
-Club Leaders, Vice Presidents, and all other club officers are students. They do not use SAMA at any point — everything described in this section happens via the **Student Portal** "Workspace" tab, which is unlocked for any student holding a club officer role.
+Club Presidents, Vice Presidents, and all other club officers are students. They do not use SAMA at any point — everything described in this section happens via the **Student Portal** "Workspace" tab, which is unlocked for any student holding a club officer role.
 
-Everything described elsewhere in §10 from the Club Leader's perspective (submitting activity requests, viewing the club pipeline, reviewing membership applications) is accessed through the "Workspace" tab in the Student Portal, not through SAMA. Their submissions arrive in SAMA as Drafts; a Club Coordinator picks them up from there.
+Everything described elsewhere in §10 from the Club President's perspective (submitting activity requests, viewing the club pipeline, reviewing membership applications) is accessed through the "Workspace" tab in the Student Portal, not through SAMA. Their submissions arrive in SAMA as Drafts; a Club Coordinator picks them up from there.
 
 **Workspace tab features (V1):**
 - Submit activity requests for their club (creates a Draft in SAMA)
@@ -1276,7 +1276,7 @@ The planned total and student contribution figure are auto-summed from line item
 ### 12.4 Transactions
 **Expense transactions** (coordinator-entered):
 - Fields: amount, category {Catering, Venue, Supplies, Prizes, Transport, Other}, vendor/source, date, receipt (lightweight attachment — separate from Documents module), notes.
-- Who can record: Coordinator (own), Club Leader (own club), Manager (any). All edits/deletions audit-logged.
+- Who can record: Coordinator (own), Club President (own club), Manager (any). All edits/deletions audit-logged.
 - Coordinator can edit and delete their own entries; Manager can edit/delete any.
 
 **Income transactions** (system-generated only):
@@ -1306,11 +1306,11 @@ The planned total and student contribution figure are auto-summed from line item
 - **v2**: Full PRF workflow — Coordinator fills the PRF inside SAMA using the budget line items as the basis; routed for approvals; linked to the activity. Tracked status (Submitted / Approved / Rejected) visible in the Budget tab.
 
 ### 12.9 Club-organised activity budgets
-- **Budget flow for club activities**: Club Leader creates a draft activity including a budget suggestion (planned amount in simple or detailed mode) → Club Coordinator reviews the draft and may adjust the budget before formally submitting it to the Manager → Manager approves and sets the final approved amount. Mechanically this is Draft → Submitted → Approved. Visually the flow should feel like two distinct steps (Club Leader creates/suggests; Coordinator reviews and adjusts/submits; Manager approves).
-- **Club Leader budget access**: Club Leaders have write access to the budget only while the activity is in Draft state — they can create and edit their budget suggestion on their own club's drafts. Once the activity advances past Draft, the Club Leader can no longer edit the budget; only Club Coordinator and Manager can.
-- **Club Coordinator budget access**: Club Coordinators have write access to the budget in both Draft and Submitted states for their assigned clubs. They can adjust the Club Leader's suggestion before or after submission to the Manager.
-- Budget change requests from Club Leaders follow the same path as Coordinators (submit request → Manager approves).
-- Club Leaders see full Budget tab for their own club's activities only.
+- **Budget flow for club activities**: Club President creates a draft activity including a budget suggestion (planned amount in simple or detailed mode) → Club Coordinator reviews the draft and may adjust the budget before formally submitting it to the Manager → Manager approves and sets the final approved amount. Mechanically this is Draft → Submitted → Approved. Visually the flow should feel like two distinct steps (Club President creates/suggests; Coordinator reviews and adjusts/submits; Manager approves).
+- **Club President budget access**: Club Presidents have write access to the budget only while the activity is in Draft state — they can create and edit their budget suggestion on their own club's drafts. Once the activity advances past Draft, the Club President can no longer edit the budget; only Club Coordinator and Manager can.
+- **Club Coordinator budget access**: Club Coordinators have write access to the budget in both Draft and Submitted states for their assigned clubs. They can adjust the Club President's suggestion before or after submission to the Manager.
+- Budget change requests from Club Presidents follow the same path as Coordinators (submit request → Manager approves).
+- Club Presidents see full Budget tab for their own club's activities only.
 
 ### 12.10 Reporting
 - **Per-activity** (Budget tab): planned vs. actual, line item breakdown, transaction list, revenue section, variance, net university cost.
@@ -1347,7 +1347,7 @@ Every enrolled student has access to the following six tabs:
 
 ### 13.3 Workspace tab (club officers only)
 
-Students who hold any club officer role (Club Leader, Vice President, Secretary, Treasurer, or any other designated officer role) have an additional **Workspace** tab unlocked. This tab does not appear for regular (non-officer) students.
+Students who hold any club officer role (Club President, Vice President, Secretary, Treasurer, or any other designated officer role) have an additional **Workspace** tab unlocked. This tab does not appear for regular (non-officer) students.
 
 **Who gets the Workspace tab**: any student whose `ClubMembership.role_in_club` is any officer-tier role for at least one active club. A student with officer roles in multiple clubs sees a club switcher within the tab.
 
@@ -1360,14 +1360,14 @@ Students who hold any club officer role (Club Leader, Vice President, Secretary,
 - View club budget snapshot (read-only — approved amount, spent, remaining)
 - View their officer roles across all clubs they lead
 
-**Club Leaders never touch SAMA.** All actions available to them are in the Student Portal. Their submissions, once created as Drafts in the backend, are processed by the Club Coordinator in SAMA.
+**Club Presidents never touch SAMA.** All actions available to them are in the Student Portal. Their submissions, once created as Drafts in the backend, are processed by the Club Coordinator in SAMA.
 
 ### 13.4 Integration with SAMA
 
 The Student Portal is not a separate system — it reads and writes to the same data layer as SAMA:
 
-- An activity request submitted by a Club Leader via the Student Portal **immediately appears as a Draft** in SAMA, visible to the assigned Club Coordinator(s).
-- When a Club Coordinator or Manager takes an action in SAMA (approval, rejection, request-for-changes), the **status update is immediately visible** to the Club Leader in their Student Portal "Workspace" tab. No delay, no polling.
+- An activity request submitted by a Club President via the Student Portal **immediately appears as a Draft** in SAMA, visible to the assigned Club Coordinator(s).
+- When a Club Coordinator or Manager takes an action in SAMA (approval, rejection, request-for-changes), the **status update is immediately visible** to the Club President in their Student Portal "Workspace" tab. No delay, no polling.
 - When an activity is approved and published in SAMA, it **appears immediately in the Student Portal Explore tab** for eligible students.
 - Attendance, completion, and certificate status recorded in SAMA are immediately reflected in the student's "My Activities" and "Certificates" tabs.
 
@@ -2034,23 +2034,23 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-RA4**: Only Manager can assign, modify, or revoke roles — from the Settings page. No delegation of role-assignment authority in v1.
 - **BR-RA5**: Club Coordinator is a scoped role — a user assigned as Club Coordinator for Club A has no Club Coordinator authority over Club B unless separately assigned.
 - **BR-RA6**: Club Advisor is a read-only observer role scoped to assigned clubs. No approval authority in v1. External Club Advisor accounts (faculty, external professionals) are a v2 feature.
-- **BR-RA7**: Club Leader is a student-facing system role granted per-club by Manager or Club Coordinator. It grants the student authority to create and submit activity requests for that club only.
+- **BR-RA7**: Club President is a student-facing system role granted per-club by Manager or Club Coordinator. It grants the student authority to create and submit activity requests for that club only.
 
 ### Clubs
-- **BR-CL1**: A club activity request submitted by a Club Leader routes to all assigned Club Coordinators for that club simultaneously (OR logic — any one can act; first to act resolves, others' pending items clear).
+- **BR-CL1**: A club activity request submitted by a Club President routes to all assigned Club Coordinators for that club simultaneously (OR logic — any one can act; first to act resolves, others' pending items clear).
 - **BR-CL2**: Club activity approval is two-step: Club Coordinator (step 1) → Manager (final). Both steps use the same Approve / Reject / Request-changes actions.
 - **BR-CL3**: Manager sees all club activity requests from the moment of submission and can override Phase 1, approving directly at any time.
 - **BR-CL4**: Club Advisors are not in the approval chain. They receive a FYI notification after Manager final approval.
-- **BR-CL5**: A club must have at least one Club Coordinator assigned before a Club Leader can submit activity requests. If no Club Coordinator is assigned, submission is blocked with a message directing the Club Leader to contact the Manager.
+- **BR-CL5**: A club must have at least one Club Coordinator assigned before a Club President can submit activity requests. If no Club Coordinator is assigned, submission is blocked with a message directing the Club President to contact the Manager.
 - **BR-CL6**: Club Coordinator assignments and Club Advisor assignments are many:many (a club can have multiple of each; a staff member can be assigned to multiple clubs in each role).
 - **BR-CL7**: Club Coordinator assignment and removal is logged in the audit trail.
-- **BR-CL8**: The two-step approval flow is triggered only when the activity's creator has the Club Leader role for the linked club. A Coordinator creating an activity linked to a club follows the standard one-step flow.
-- **BR-CL9**: Club creation requires Manager approval. A Club Leader submits a club formation request; Manager approves or rejects.
+- **BR-CL8**: The two-step approval flow is triggered only when the activity's creator has the Club President role for the linked club. A Coordinator creating an activity linked to a club follows the standard one-step flow.
+- **BR-CL9**: Club creation requires Manager approval. A Club President submits a club formation request; Manager approves or rejects.
 - **BR-CL10**: Club Coordinator can initiate a club suspension (pending Manager confirmation). Manager can permanently archive a club.
-- **BR-CL11**: Club Leaders can view their own club's detail and member roster. They cannot see other clubs' member lists or budgets.
-- **BR-CL12**: Club metadata (name, description, meeting schedule, contact email) can be edited by the assigned Club Coordinator or Manager. Club Leader can propose changes via a request; Coordinator applies them.
-- **BR-CL13**: Membership requests are approved by the Club Coordinator (assigned) or Manager. Club Leader can view pending requests but cannot approve or reject them in v1.
-- **BR-CL14**: On a Club Leader's activity submission, notifications go to all Club Coordinators assigned to that club and (for awareness) all Club Advisors assigned to that club.
+- **BR-CL11**: Club Presidents can view their own club's detail and member roster. They cannot see other clubs' member lists or budgets.
+- **BR-CL12**: Club metadata (name, description, meeting schedule, contact email) can be edited by the assigned Club Coordinator or Manager. Club President can propose changes via a request; Coordinator applies them.
+- **BR-CL13**: Membership requests are approved by the Club Coordinator (assigned) or Manager. Club President can view pending requests but cannot approve or reject them in v1.
+- **BR-CL14**: On a Club President's activity submission, notifications go to all Club Coordinators assigned to that club and (for awareness) all Club Advisors assigned to that club.
 - **BR-CL15**: After a Club Coordinator approves step 1, the Manager receives a notification: "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval."
 - **BR-CL16**: If Manager rejects at step 2, the activity returns to Submitted with coordinator_approval_phase = coordinator_approved so the Club President can review the Manager's reason without redoing coordinator review.
 - **BR-CL17**: UDSU is modeled as a club with `is_union = true`. It uses the same Clubs module in SAMA with an extended role set. UDSU elections and Cabinet selection are managed externally by DSS; Cabinet membership is updated manually in SAMA by the Manager.
@@ -2122,8 +2122,8 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-B9**: Increasing approved_amount post-approval requires a Budget change request. Decreasing is free (audit-logged, no request needed).
 - **BR-B10**: A Budget change request surfaces in both the Approvals inbox and inline in the Budget tab. Manager resolves it in either location.
 - **BR-B11**: At most one pending Budget change request per activity at a time.
-- **BR-B12**: For Club-organised activities: Club Leader enters planned amount as a budget suggestion in Draft state only. Club Coordinator reviews and may adjust the budget in Draft and Submitted states. Manager sets approved amount at final approval.
-- **BR-B12a**: Club Leader write access to budget is restricted to Draft state. Once an activity advances beyond Draft, Club Leader has view-only access to the budget.
+- **BR-B12**: For Club-organised activities: Club President enters planned amount as a budget suggestion in Draft state only. Club Coordinator reviews and may adjust the budget in Draft and Submitted states. Manager sets approved amount at final approval.
+- **BR-B12a**: Club President write access to budget is restricted to Draft state. Once an activity advances beyond Draft, Club President has view-only access to the budget.
 - **BR-B12b**: Club Coordinator has write access to budget in Draft and Submitted states for their assigned clubs.
 - **BR-B13**: Decreasing approved_amount below actual_spent is allowed but triggers the over-budget alert.
 - **BR-B14**: The Budget tab always shows stat cards (Planned, Approved, Spent, Remaining, Expected revenue, Received revenue). Unset values display as "—"; Spent and Received show AED 0 when no transactions exist.
@@ -2199,8 +2199,8 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 - **BR-LC4**: A Postponed activity may transition to Active (Coordinator sets a new date and re-activates — no Manager re-approval needed, original approval carries over) or to Cancelled.
 - **BR-LC5**: Activities in Submitted for Closure or Closed state cannot be reopened directly. Manager must reject the closure submission (returning to Completed) before the Coordinator can reopen.
 - **BR-LC6**: Eligibility rules are enforced at both catalog display and registration time. Default `eligibility_rules = null` means open to all enrolled students. Post-publish tightening grandfathers existing registrants — new rules apply to new registrations only. Grandfathered registrants are flagged in the roster.
-- **BR-LC7**: Club Leader may withdraw a submitted club activity from the Student Portal Workspace tab during Phase 1 only (while `coordinator_approval_phase = pending`). After Club Coordinator approves Step 1, withdrawal authority transfers to DSS staff only.
-- **BR-LC8**: After Manager rejection at Step 2 of the club approval chain, the Club Leader must make an edit and resubmit. The Club Coordinator then re-approves (Step 1) and the Manager reviews again. The Coordinator cannot re-approve without a Club Leader resubmission.
+- **BR-LC7**: Club President may withdraw a submitted club activity from the Student Portal Workspace tab during Phase 1 only (while `coordinator_approval_phase = pending`). After Club Coordinator approves Step 1, withdrawal authority transfers to DSS staff only.
+- **BR-LC8**: After Manager rejection at Step 2 of the club approval chain, the Club President must make an edit and resubmit. The Club Coordinator then re-approves (Step 1) and the Manager reviews again. The Coordinator cannot re-approve without a Club President resubmission.
 - **BR-LC9**: When a waitlisted student is auto-promoted to Registered, schedule conflicts are not re-checked. The student is promoted regardless. Both student and Coordinator are notified. The student's roster row is flagged with a conflict indicator until resolved.
 
 ### Cross-cutting: edits, lifecycle, language, notifications, welfare matrix
@@ -2231,9 +2231,9 @@ A consolidated list to make gaps obvious. Each rule has an ID for reference.
 ### Student Portal & SSO (Round 29)
 - **BR-SP1**: All users authenticate via a single university SSO. There are no separate credentials for SAMA vs. the Student Portal. One identity per person.
 - **BR-SP2**: A user with only student roles is routed to the Student Portal. A user with only staff roles is routed to SAMA. A user with both student and staff roles is presented with access to both surfaces. The exact UX for dual-access (surface switcher, separate entry points, or post-login selector) is to be determined during design.
-- **BR-SP3**: Club officers (Club Leader, Vice President, Secretary, Treasurer, or any other designated officer role) do not receive SAMA access by virtue of their club role alone. Their elevated access is the "Workspace" tab within the Student Portal.
+- **BR-SP3**: Club officers (Club President, Vice President, Secretary, Treasurer, or any other designated officer role) do not receive SAMA access by virtue of their club role alone. Their elevated access is the "Workspace" tab within the Student Portal.
 - **BR-SP4**: All club officers within a club have identical permissions in the Student Portal "Workspace" tab (V1). Differentiated officer permissions are deferred to V2.
-- **BR-SP5**: Activity requests submitted by Club Leaders via the Student Portal are created as Drafts in the SAMA backend and are immediately visible to the assigned Club Coordinator(s) in SAMA.
+- **BR-SP5**: Activity requests submitted by Club Presidents via the Student Portal are created as Drafts in the SAMA backend and are immediately visible to the assigned Club Coordinator(s) in SAMA.
 
 ### Student Portal — Explore, Registration, Cancellation, Waitlist, Volunteering, Certificates, Transcript, Clubs, Workspace, Privacy, Notifications (Round 31)
 
@@ -2361,7 +2361,7 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 - *Budget change requests appear in both the Approvals inbox and inline in the activity's Budget tab.*
 - *Coordinator can see both planned and approved amounts.*
 - *Transaction receipts are separate from the Documents module — lightweight attachment on the transaction only.*
-- *Club-organised activities: Club Leader enters planned amount; Manager sets approved amount at approval.*
+- *Club-organised activities: Club President enters planned amount; Manager sets approved amount at approval.*
 - *Budget tab empty state: stat cards always shown even when no budget is set — unset values display as "—", Spent shows AED 0. No blank empty-state.)*
 
 *(Resolved round 25 — Co-funded budget model, now reflected in §4.8, §6.1, §12, §17:*
@@ -2375,7 +2375,7 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 *(Resolved round 27 — Role architecture & club approval, now reflected in §3, §4.1, §4.5, §6.2, §10, §17:*
 - *Roles are additive and module-scoped. Manager is the superset with no module boundary. Nurse/Counselor permissions are Health/Counseling module-only. Coordinator permissions are Activities module-only.*
 - *Two new roles added to the matrix: Club Coordinator (internal, first-step approver for assigned clubs) and Club Advisor (internal or external observer, no approval authority in v1).*
-- *Club Leader formalised as a student-facing system role granted per-club.*
+- *Club President formalised as a student-facing system role granted per-club.*
 - *"Supervisor" role dropped — Club Coordinator covers the function.*
 - *Club activity approval is two-step: Club Coordinator (step 1, any one of the assigned coordinators acts — OR logic) → Manager (final). Manager can override at any time.*
 - *Manager sees all Submitted activities from Phase 1 onward. Club Advisors receive FYI notification after Manager final approval.*
@@ -2388,25 +2388,25 @@ Most round-16 sub-questions were resolved in rounds 17–19. The few remaining:
 The following gaps were resolved in Round 28 and their decisions are now reflected throughout this PRD:
 
 - **Gap 3** (Manager-Welfare): "Manager-Welfare" is not a separate sub-role. The term is removed from §11. The Manager role inherently holds welfare oversight. WelfareAssignment grants Employee-level welfare staff access, not a distinct Manager-Welfare role.
-- **Gap 4** (Two-step club approval trigger): Triggered by `created_by has Club Leader role for the linked club`. A Coordinator creating an activity on behalf of a club follows the standard one-step flow. Updated in §6.2.2.
-- **Gap 6** (Club Leader budget): Club Leaders can draft/suggest a budget (write access in Draft state only). Flow: Club Leader creates draft including budget suggestion → Club Coordinator reviews/adjusts and formally submits → Manager approves. Mechanically Draft→Submitted→Approved. Updated in §12.9 and §3.2.
+- **Gap 4** (Two-step club approval trigger): Triggered by `created_by has Club President role for the linked club`. A Coordinator creating an activity on behalf of a club follows the standard one-step flow. Updated in §6.2.2.
+- **Gap 6** (Club President budget): Club Presidents can draft/suggest a budget (write access in Draft state only). Flow: Club President creates draft including budget suggestion → Club Coordinator reviews/adjusts and formally submits → Manager approves. Mechanically Draft→Submitted→Approved. Updated in §12.9 and §3.2.
 - **Gap 1** (Staff terminology): "Staff" removed as a role name throughout §3. Replaced with specific role names (Coordinator, Manager, etc.) or "authenticated employee" as appropriate.
 - **Gap 2** (Role table completeness): Club Coordinator → "Clubs (assigned)"; Club Advisor → "Clubs (assigned, notify-only)". Footnote added: Manager implicitly holds every role's permissions across all modules.
-- **Gap 5** (Standard approval flow): Confirmed single-step: Coordinator submits → Manager approves. Note added in §6.2.1: activities not linked to a club, or club activities not created by a Club Leader, always follow this flow.
-- **Gap 7** (Club creation): Club creation requires Manager approval. A Club Leader submits a club formation request; Manager approves or rejects. Added to §10.1.
+- **Gap 5** (Standard approval flow): Confirmed single-step: Coordinator submits → Manager approves. Note added in §6.2.1: activities not linked to a club, or club activities not created by a Club President, always follow this flow.
+- **Gap 7** (Club creation): Club creation requires Manager approval. A Club President submits a club formation request; Manager approves or rejects. Added to §10.1.
 - **Gap 8** (Club deactivation/archival): Club Coordinator can suspend a club (pending Manager confirmation). Manager can permanently archive. Added to §10.1.
 - **Gap 9** (Club Advisor permissions): Activities = View only, Budget = View only, Clubs = View assigned clubs only, Reports = None. Updated in §3.2 and §3.3.
-- **Gap 10** (Notification on submission): On Club Leader submission, notifications to all assigned Club Coordinators + Club Advisors (awareness only). Added to §6.2.2.
+- **Gap 10** (Notification on submission): On Club President submission, notifications to all assigned Club Coordinators + Club Advisors (awareness only). Added to §6.2.2.
 - **Gap 11** (Notification after step-1 approval): Manager receives "[Club Name] activity '[Title]' has passed coordinator review and awaits your approval." Added to §6.2.2.
-- **Gap 12** (Rejection in two-step flow): Coordinator rejection → Draft. Manager rejection → Submitted with coordinator_approval_phase=coordinator_approved (Club Leader sees reason without redoing Coordinator review). Added to §6.2.2.
-- **Gap 13** (Club Leader club visibility): Club Leaders can view own club detail and members; cannot see other clubs' member lists or budgets. Added to §10.6.
-- **Gap 14** (Club metadata editing): Club Coordinator or Manager edits club metadata. Club Leader can propose changes via free-text request. Added to §10.7.
-- **Gap 15** (Membership request approval): Approved by Club Coordinator or Manager. Club Leader can view pending requests but cannot approve/reject in v1. Added to §10.8.
+- **Gap 12** (Rejection in two-step flow): Coordinator rejection → Draft. Manager rejection → Submitted with coordinator_approval_phase=coordinator_approved (Club President sees reason without redoing Coordinator review). Added to §6.2.2.
+- **Gap 13** (Club President club visibility): Club Presidents can view own club detail and members; cannot see other clubs' member lists or budgets. Added to §10.6.
+- **Gap 14** (Club metadata editing): Club Coordinator or Manager edits club metadata. Club President can propose changes via free-text request. Added to §10.7.
+- **Gap 15** (Membership request approval): Approved by Club Coordinator or Manager. Club President can view pending requests but cannot approve/reject in v1. Added to §10.8.
 - **Gap 16** (BR numbering): Business rules audited; no duplicates found. New BRs BR-CL8 through BR-CL16 and BR-B12a/BR-B12b added.
 - **Gap 17** (Assignment types): §4.1 updated with who assigns, cardinality, and permission granted for all 4 assignment types.
 - **Gap 18** (WelfareAssignment): Clarified as granting Employee-level welfare access to a specific service; assigned by Manager. "Manager-Welfare" is not a role.
 - **Gap 19** (Round 28 log entry): This entry. Date 2026-05-12. 20 gaps closed in total (Gaps 1–20).
-- **Gap 20** (coordinator_approval_phase): Added to §4.2 Activity table: `coordinator_approval_phase ENUM('pending','coordinator_approved') NULLABLE`, non-null only when status='submitted' and trigger condition (Club Leader creator) is met.
+- **Gap 20** (coordinator_approval_phase): Added to §4.2 Activity table: `coordinator_approval_phase ENUM('pending','coordinator_approved') NULLABLE`, non-null only when status='submitted' and trigger condition (Club President creator) is met.
 
 Total gaps closed in Round 28: 20.
 
@@ -2563,21 +2563,21 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 | 67 | Ready-to-close: Manager dashboard widget only; no notification escalation, no auto-closure | round 23 |
 | 68 | Survey question library: Manager-curated, tenant-wide, versioned. Coordinators pick from library and/or add ad-hoc questions; suggested additions go to Manager for approval | round 23 |
 | 69 | Manager-Welfare is not a separate sub-role; Manager role covers all welfare oversight. WelfareAssignment grants Employee-level welfare access per service | round 28 |
-| 70 | Two-step club approval triggered by creator having Club Leader role for linked club; Coordinator-created club activities use standard one-step flow | round 28 |
-| 71 | Club Leader budget: write access in Draft state only; Coordinator write access in Draft and Submitted; Manager sets approved amount | round 28 |
-| 72 | Club creation requires Manager approval on a Club Leader's formation request | round 28 |
+| 70 | Two-step club approval triggered by creator having Club President role for linked club; Coordinator-created club activities use standard one-step flow | round 28 |
+| 71 | Club President budget: write access in Draft state only; Coordinator write access in Draft and Submitted; Manager sets approved amount | round 28 |
+| 72 | Club creation requires Manager approval on a Club President's formation request | round 28 |
 | 73 | Club suspension: Coordinator initiates, Manager confirms. Club archival: Manager only | round 28 |
 | 74 | Club Advisor permissions: Activities/Budget view only for assigned clubs, Clubs view only, Reports none | round 28 |
-| 75 | Notification on Club Leader submission: all assigned Coordinators + all assigned Advisors (awareness). Notification on step-1 approval: Manager receives confirmation message | round 28 |
-| 76 | Manager rejection at step 2 returns activity to Submitted with coordinator_approval_phase=coordinator_approved (Club Leader sees reason without redoing step 1) | round 28 |
-| 77 | Club Leader visibility: own club detail and members only; cannot see other clubs' member lists or budgets | round 28 |
-| 78 | Club metadata changes: Coordinator or Manager edits; Club Leader proposes via free-text request | round 28 |
-| 79 | Membership request approval: Club Coordinator or Manager; Club Leader can view but not approve/reject in v1 | round 28 |
+| 75 | Notification on Club President submission: all assigned Coordinators + all assigned Advisors (awareness). Notification on step-1 approval: Manager receives confirmation message | round 28 |
+| 76 | Manager rejection at step 2 returns activity to Submitted with coordinator_approval_phase=coordinator_approved (Club President sees reason without redoing step 1) | round 28 |
+| 77 | Club President visibility: own club detail and members only; cannot see other clubs' member lists or budgets | round 28 |
+| 78 | Club metadata changes: Coordinator or Manager edits; Club President proposes via free-text request | round 28 |
+| 79 | Membership request approval: Club Coordinator or Manager; Club President can view but not approve/reject in v1 | round 28 |
 | 80 | coordinator_approval_phase ENUM('pending','coordinator_approved') NULLABLE added to Activity table; non-null only when status='submitted' and trigger condition met | round 28 |
 | 81 | Platform surface architecture: hybrid model (two UI surfaces, one shared backend). SAMA = internal staff tool, desktop-first. Student Portal = student-facing product, mobile-first PWA. | round 29 |
 | 82 | SSO model: single university SSO for both surfaces. No separate credentials. Role-based routing: staff only → SAMA; student only → Student Portal; both → access to both surfaces. | round 29 |
 | 83 | Part-time student/staff edge case: a user holding both a student identity and a staff role must be explicitly handled in the auth layer — they receive access to both surfaces. Exact UX TBD in design. | round 29 |
-| 84 | Club Leader / club officer access: all club officers are students and access the system exclusively via the Student Portal "Workspace" tab. They never access SAMA. Their submissions create Drafts in SAMA for the Club Coordinator to process. | round 29 |
+| 84 | Club President / club officer access: all club officers are students and access the system exclusively via the Student Portal "Workspace" tab. They never access SAMA. Their submissions create Drafts in SAMA for the Club Coordinator to process. | round 29 |
 | 85 | V1 flat officer permissions: all club officers (regardless of title) have identical access in the Student Portal "Workspace" tab. Differentiated officer permissions deferred to V2. | round 29 |
 | 86 | Round 30 — Workspace tab naming: Club officer management tab in Student Portal named "Workspace" to indicate action/work orientation rather than "My Club" which implies a passive membership view. | round 30 |
 | 87 | Round 31 — Student Portal business rules (BR-SP6–SP26) added to §13.6 and §17. Key decisions: (a) Only Active-status activities visible in Explore tab; (b) Registration deadline is configurable per activity (no deadline = open until start); (c) No eligibility restrictions in V1 (deferred to V2); (d) Fee payment out of scope for V1 Student Portal; (e) Cancellation deadline is configurable per activity (new, overrides the Student Portal framing of existing §6.1 policy); (f) Waitlist confirmation window introduced as configurable per activity — this supersedes the prior auto-confirm rule in §7.3/BR-WL1, which is now scoped to the SAMA-default behavior; activity creator may choose to enable a confirmation window instead; (g) Volunteer hours goal is university-wide in system settings, not per student; (h) Self-reported external activity enters Pending verification before counting; (i) Certificate issuance mode is per-activity: Manual (coordinator issues explicitly) or Automatic (threshold-based) — activity creator chooses at setup; (j) Certificates have unique public verification URL, no login required; (k) Certificates do not expire; (l) Transcript is on-demand PDF, no registrar routing in V1; (m) No max club member count in V1; (n) Club leader blocked from leaving if sole remaining leader; (o) Membership applications auto-decline after 14 days; (p) Club announcements in-app only, active members only; (q) Minimum activity request fields defined; (r) Student participation records private by default; (s) 8 notification triggers defined for Student Portal. **Conflict resolved (post-round):** BR-SP11 (item f above) conflicted with BR-WL1 and §7.3, which stated promotion was always auto-confirm. Resolution: configurable confirmation window wins; auto-confirm is the default when no window is set by the coordinator, not the only mode. BR-WL1, §7.3, and BR-SP11 have all been updated to reflect this. | round 31 |
