@@ -2490,6 +2490,22 @@ Total gaps closed in Round 28: 20.
 - **PRF workflow** (Purchase Request Form): full multi-step chain (Coordinator → Manager → Procurement → Finance → President) is a v2 feature. v1 shows a reminder banner only. See §12.8.
 - **External Club Advisor accounts**: faculty or professionals outside the department assigned as Club Advisors need a limited external account type (scoped to their club(s), read-only, magic-link auth). Deferred to v2. v1: Club Advisors are internal staff only.
 
+### 19.7 Open PRD topics — pending specification rounds
+
+The following areas have not yet been fully specified. Each will be resolved through dedicated Q&A rounds before the relevant build phase begins.
+
+| # | Topic | What is missing |
+|---|---|---|
+| **OT-1** | **Activity sub-types** | The PRD defines 4 top-level types (Event / Program / Workshop / Campaign) but does not define the sub-types within each (e.g. Conference, Lecture, Panel Discussion as sub-types of Event). Sub-type determines default form fields, OBEF eligibility mapping, and certificate template selection. |
+| **OT-2** | **Activity form fields per type** | Required vs. optional fields are not fully specified per type. For example: does a Campaign require a capacity? Does a Workshop always need sessions? A field matrix (type × field × required/optional/hidden) needs to be agreed. |
+| **OT-3** | **Employee KPI linking** | No mechanism exists to track how individual staff (Coordinators, Employees) contribute to department KPIs through their activity involvement. Relevant dimensions: sessions facilitated, activities coordinated, attendance managed, volunteer hours supervised. Entirely unspecified. |
+| **OT-4** | **AI / AI agents inside SAMA** | No AI features are currently specified. Potential areas: activity description drafting, smart scheduling suggestions, anomaly detection in attendance, auto-categorisation of survey comments, natural-language report querying, chatbot for students in the Portal. Needs a dedicated scoping round. |
+| **OT-5** | **Volunteer hours tracking** | The PRD references a semester volunteer-hours target (§15a — Academic Calendar setting) and a student-facing progress bar, but the full tracking flow is incomplete: how hours are earned per activity type, whether hours roll over between semesters, how the certificate relates to hours, and whether there is a cumulative annual target. |
+| **OT-6** | **Student engagement scoring** | §1.2 and the Hub reference an engagement score or engagement spark for students, but no formula, input signals, or display rules are defined. Needs to be scoped or explicitly descoped. |
+| **OT-7** | **Recurring activities** | Decision #62 resolved that a club's weekly meeting is modelled as one Program per term. However, the creation helper (auto-generate N sessions from a recurrence rule), the Student Portal display of recurring programs, and how a recurring pattern is communicated to students are not specified. |
+| **OT-8** | **External activity self-reporting** | The Student Portal's Volunteering tab references self-reported external activities that enter a Pending verification state (BR-SP13). The Coordinator-side verification flow (how they confirm, what evidence is required, what happens on reject) is not specified. |
+| **OT-9** | **Notification templates** | §4.9 and §15a (Settings → Notifications) define the triggers and the ability to override templates, but the default content (subject line, body, tone, variable tokens) for each of the ~20 notification triggers is not written. Needed before the email/push infrastructure is built. |
+
 ### 19.6 Architectural assumptions to validate
 - **Single Manager in v1**, but the schema supports multiple Managers and per-department role assignments via `DepartmentRole` (§4.0). No retrofit needed when a second Manager joins.
 - **Single Department in v1** (Student Activities). Schema includes `department_id` on all activities/clubs/welfare/budget/audit rows. Adding Alumni or Colleges as new departments later is a config + data-load operation, not a schema change. Each department can enable/disable modules independently.
@@ -2662,5 +2678,5 @@ Tech-agnostic grouping. Within each phase, design → build → test → UAT.
 
 ---
 
-*End of PRD. The PRD is substantively complete for v1 scope. Remaining open items are narrow and listed in §19.2 / §19.3 (e.g. finance reference-number format, auto-decision deadline default, per-session waitlist behavior, authenticated employee scheduling-conflict warnings, bulk operations confirm). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
+*End of PRD. Narrow open items are listed in §19.2 / §19.3 (finance reference-number format, auto-decision deadline default, per-session waitlist behavior, bulk operations confirm). Nine larger open topics requiring dedicated specification rounds are listed in §19.7 (activity sub-types, form fields per type, employee KPI linking, AI features, volunteer hours tracking, student engagement scoring, recurring activity creation helper, external activity self-reporting, and notification templates). Section §4.0 (Tenancy and departments) is the most architecturally consequential addition; even a v1 single-department deployment must carry `tenant_id` and `department_id` from day one.*
 
